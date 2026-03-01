@@ -24,7 +24,7 @@
   </p>
 </div>
 
-> Starting from [Word GPT Plus](https://github.com/kauttoj/WordLLMs), WordLLMs is a complete overhaul with a Python backend, multi-agent orchestration, revised tools, file attachments, GUI enchancements and support for all major Large Language Model (LLM) providers including local models.
+> Starting from [Word GPT Plus](https://github.com/Kuingsmile/word-GPT-Plus), WordLLMs is a complete overhaul with a Python backend, multi-agent orchestration, revised tools, file attachments, GUI enchancements and support for all major Large Language Model (LLM) providers including local models.
 
 WordLLMs is self-hosted, running locally on your machine storing all data on your device. No data is shared or stored elsewhere, except in two situations:
 
