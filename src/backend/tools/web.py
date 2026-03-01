@@ -4,9 +4,8 @@ from langchain_tavily._utilities import TavilySearchAPIWrapper
 from typing import Literal
 
 # ~5000 tokens ≈ 20000 chars for search results, ~15000 chars for URL fetch
-MAX_SEARCH_RESULT_CHARS = 20000
-MAX_FETCH_CHARS = 15000
-
+MAX_SEARCH_RESULT_CHARS = 500000
+MAX_FETCH_CHARS = 100000
 
 def _format_search_results(raw: dict) -> str:
     """Format raw Tavily API response into a concise string for the LLM."""
