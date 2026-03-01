@@ -11,6 +11,39 @@ def count_tokens(model_name: str, messages: Sequence[BaseMessage]) -> int:
     return token_counter(model=model_name, messages=_to_litellm_messages(messages))
 
 
+_DEPRECATED_DOC_CONTENT = "[content deprecated, see the updated content or re-read]"
+
+
+def _deprecate_stale_document_reads(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """Keep only the most recent get_document_content result; deprecate older ones.
+
+    When the agent reads the document multiple times (across turns or within a turn),
+    only the latest snapshot is relevant.  Older ToolMessage results are replaced with
+    a short marker so the LLM knows the content existed but doesn't waste tokens on it.
+    """
+    # Build map: tool_call_id -> tool_name from AIMessages
+    call_id_to_name: dict[str, str] = {}
+    for msg in messages:
+        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+            for tc in msg.tool_calls:
+                call_id_to_name[tc["id"]] = tc["name"]
+
+    # Find indices of all get_document_content ToolMessages
+    doc_indices: list[int] = []
+    for i, msg in enumerate(messages):
+        if isinstance(msg, ToolMessage) and call_id_to_name.get(msg.tool_call_id) == "get_document_content":
+            doc_indices.append(i)
+
+    if len(doc_indices) <= 1:
+        return messages  # Nothing to deduplicate
+
+    # Replace all but the last (most recent) with deprecation marker
+    for idx in doc_indices[:-1]:
+        old = messages[idx]
+        messages[idx] = ToolMessage(content=_DEPRECATED_DOC_CONTENT, tool_call_id=old.tool_call_id)
+    return messages
+
+
 def trim_to_fit(
     messages: Sequence[BaseMessage],
     model_name: str,
@@ -24,8 +57,11 @@ def trim_to_fit(
     Raises ValueError if protected messages alone exceed the budget.
     Only logs when trimming actually occurs.
     """
-    # Reserve 25% for output
-    budget = int(max_context_tokens * 0.75)
+    # Deprecate stale document reads before any budget calculations
+    messages = _deprecate_stale_document_reads(list(messages))
+
+    # Reserve 20% for output
+    budget = int(max_context_tokens * 0.80)
 
     current = count_tokens(model_name, messages)
     if current <= budget:

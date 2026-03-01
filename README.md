@@ -24,6 +24,8 @@
   </p>
 </div>
 
+> **Warning**: This is the first release of WordLLMs. The application is still under active development and testing. Expect bugs, breaking changes, and incomplete features. Bug reports and feedback are welcome via [Issues](https://github.com/kauttoj/WordLLMs/issues).
+
 > Starting from [Word GPT Plus](https://github.com/Kuingsmile/word-GPT-Plus), WordLLMs is a complete overhaul with a Python backend, multi-agent orchestration, revised tools, file attachments, GUI enchancements and support for all major Large Language Model (LLM) providers including local models.
 
 WordLLMs is self-hosted, running locally on your machine storing all data on your device. No data is shared or stored elsewhere, except in two situations:
@@ -33,8 +35,6 @@ WordLLMs is self-hosted, running locally on your machine storing all data on you
 - Web search: If you enable web search tool, LLM sends web queries to Tavily service (https://app.tavily.com). You can disable web search tool completely.
 
 If you use a self-hosted LLM running LMstudio or Ollama, you can run the WordLLM fully offline.
-
-> **Warning**: This is the first release of WordLLMs. The application is still under active development and testing. Expect bugs, breaking changes, and incomplete features. Bug reports and feedback are welcome via [Issues](https://github.com/kauttoj/WordLLMs/issues).
 
 ## Introduction
 
