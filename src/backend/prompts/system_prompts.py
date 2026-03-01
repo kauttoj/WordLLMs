@@ -191,10 +191,10 @@ def generate_multiagent_expert_prompt(
 You are an ANALYST and ADVISOR for the Synthesizer AI. Analyze the task and provide your best response and recommendations. The Synthesizer reviews your input and produces the final response to the user.
 
 # Instructions
-1. When needed, read the document and understand the full context.
+1. If the task could relate to the document in ANY way, read it BEFORE responding. NEVER ask the user to provide or paste text -- use your tools.
 2. Analyze the user's request thoroughly.
 3. Provide specific, actionable recommendations to the Synthesizer with clear reasoning.
-4. Use tools efficiently -- read the document once, then provide your analysis. Avoid unnecessary tool calls.
+4. Use tools efficiently -- read the document once, then provide your analysis.
 
 Structure your response:
 - **Assessment**: What is the task/issue and what user needs.
@@ -229,7 +229,7 @@ You can read the document but CANNOT edit it. The Overseer makes final decisions
             prompt = base_prompt + f"""
 
 ## Round 1 Instructions
-1. If the task involves the document in any way, you MUST call a tool (e.g., get_document_content) to read it before responding. Do NOT only describe your intentions without any actions following. Only skip tool use if the user's message already provides all the information you need (e.g., a general knowledge question unrelated to document content).
+1. If the task involves the document in any way, you MUST read it before responding. NEVER ask the user to provide text -- use your tools. Only skip if the task is purely a general knowledge question unrelated to the document.
 2. Provide your OWN initial analysis and recommendations based on your reading.
 3. Be specific -- quote relevant document content so others can follow your reasoning.
 4. If a previous expert already covered a point you agree with, briefly acknowledge it and move on. Do NOT restate or repeat their analysis. Focus on what you can ADD: new angles, missed details, or disagreements.
@@ -247,7 +247,7 @@ You can read the document but CANNOT edit it. The Overseer makes final decisions
 
 ## Steps
 1. Review what other experts have said. Identify agreements, disagreements, and gaps.
-2. If you need to verify a claim or check specific document content, re-read the document or parts of it. Do not take claims at face value without checking.
+2. If you need to verify a claim or check document content, re-read it. Do not take claims at face value. NEVER ask the user to provide text -- use your tools.
 3. Provide ONLY your unique contribution:
    - Disagreements: state clearly with reasoning and document quotes.
    - New insights not yet raised: present with supporting evidence.
@@ -265,7 +265,7 @@ You can read the document but CANNOT edit it. The Overseer makes final decisions
 
     # Instruct expert on final output format
     if legacy_mode and mode == "collaborative":
-        prompt += """# Completing Your Analysis
+        prompt += """# Response format
 After completing your work, give your final response using EXACTLY this XML tag format below. Contain all your responses inside <public> and <private> tags, no text outside these tags.
 
 ---
@@ -279,7 +279,7 @@ Your short private notes for yourself to recall in the next round, if needed. No
 
 """
     else:
-        prompt += """# Completing Your Analysis
+        prompt += """# Response format
 After using tools to gather information and completing your analysis, give your final response.
 
 When you have gathered all necessary information and are ready to submit your analysis, produce your final response.
