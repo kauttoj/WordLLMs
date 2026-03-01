@@ -13,7 +13,7 @@ import vueParser from 'vue-eslint-parser'
 
 export default defineConfig(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', 'release/**'],
+    ignores: ['**/dist/**', '**/node_modules/**', 'release/**', 'src/backend/**'],
   },
   js.configs.recommended,
   ...pluginVue.configs['flat/recommended'],
@@ -128,7 +128,7 @@ export default defineConfig(
     },
   },
   {
-    files: ['src/i18n/**/*.json'],
+    files: ['src/frontend/i18n/**/*.json'],
     rules: {
       'jsonc/sort-keys': [
         'error',

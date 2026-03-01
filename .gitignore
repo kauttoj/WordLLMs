@@ -1,6 +1,7 @@
 .DS_Store
 node_modules
 /dist
+__pycache__/
 
 
 # local env files
@@ -20,3 +21,16 @@ pnpm-debug.log*
 *.njsproj
 *.sln
 *.sw?
+/src/backend/__pycache__
+/src/backend/providers/__pycache__
+/src/backend/tools/__pycache__
+*.pyc
+/testing
+/src/backend/agents/__pycache__
+word-GPT-Plus.7z
+/src/backend/data
+/data
+list_of_bugs_and_issues.md
+OFFICE.JS_tools_report_and_recommendations.md
+README_cn.md
+yarn.lock

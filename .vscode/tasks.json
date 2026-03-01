@@ -1,0 +1,69 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Python Backend",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/Scripts/uvicorn.exe",
+      "args": [
+        "backend.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "3000"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Start Python Backend (Reload)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/Scripts/uvicorn.exe",
+      "args": [
+        "backend.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "3000",
+        "--reload"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Start Frontend Dev Server",
+      "type": "shell",
+      "command": "yarn",
+      "args": ["dev"],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Build Frontend",
+      "type": "shell",
+      "command": "yarn",
+      "args": ["build"],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Install Python Dependencies",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "args": ["-m", "pip", "install", "-r", "backend/requirements.txt"],
+      "problemMatcher": []
+    }
+  ]
+}

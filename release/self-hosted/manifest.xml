@@ -9,14 +9,14 @@
   <!-- Begin Basic Settings: Add-in metadata, used for all versions of Office unless override provided. -->
 
   <!-- IMPORTANT! Id must be unique for your add-in, if you reuse this manifest ensure that you change this id to a new GUID. -->
-  <Id>6b20e038-5f8e-4e3b-8481-976c5a9c0bc3</Id>
+  <Id>6b20e031-8f8e-5e3b-8481-976c5a9c0bc3</Id>
 
   <!--Version. Updates from the store only get triggered if there is a version change. -->
   <Version>1.0.0.0</Version>
-  <ProviderName>Kuingsmile</ProviderName>
+  <ProviderName>kauttoj</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <!-- The display name of your add-in. Used on the store and various places of the Office UI such as the add-ins dialog. -->
-  <DisplayName DefaultValue="Word GPT Plus" />
+  <DisplayName DefaultValue="WordLLMs" />
   <Description DefaultValue="Integrate the Power of AI Directly into Word"/>
 
   <!-- Icon for your add-in. Used on installation screens and the add-ins dialog. -->
@@ -130,13 +130,13 @@
       </bt:Urls>
       <!-- ShortStrings max characters==125. -->
       <bt:ShortStrings>
-        <bt:String id="GetStarted.Title" DefaultValue="Get started with chatGPT!" />
-        <bt:String id="CommandsGroup.Label" DefaultValue="GPT" />
-        <bt:String id="TaskpaneButton.Label" DefaultValue="GPT Plus" />
+        <bt:String id="GetStarted.Title" DefaultValue="Get started with WordLLMs!" />
+        <bt:String id="CommandsGroup.Label" DefaultValue="WordLLMs" />
+        <bt:String id="TaskpaneButton.Label" DefaultValue="WordLLMs" />
       </bt:ShortStrings>
       <!-- LongStrings max characters==250. -->
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="Your sample add-in loaded successfully. Go to the HOME tab and click the 'Show Taskpane' button to get started." />
+        <bt:String id="GetStarted.Description" DefaultValue="Your add-in loaded successfully. Go to the HOME tab and click the 'Show Taskpane' button to get started." />
         <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Click to Show a Taskpane" />
       </bt:LongStrings>
     </Resources>

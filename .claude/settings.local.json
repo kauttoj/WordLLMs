@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"backend\" /c/code/WordLLMs/package.json /c/code/WordLLMs/*.json -n)",
+      "Bash(grep -r \"src/\" /c/code/WordLLMs/*.html -n)",
+      "Read(//c/code/WordLLMs/**)",
+      "Bash(yarn build)",
+      "Bash(yarn lint)",
+      "Bash(echo \"Exit: $?\")",
+      "Bash(timeout 60 node_modules/.bin/eslint src/frontend/utils/enum.ts)",
+      "Bash(node_modules/.bin/eslint src/frontend/ --max-warnings=9999)",
+      "Bash(test -f /c/code/WordLLMs/src/backend/requirements.txt)",
+      "Bash(git diff --no-pager HEAD -- \"*.ts\" \"*.py\" \"*.vue\" \"*.json\" \"*.yml\")",
+      "Bash(xargs grep -l \"trim_to_fit\\\\|context\")"
+    ]
+  }
+}

@@ -1,3 +1,7 @@
+##  (2026-02-28)
+
+* Complete overhaul with new name WordLLMs
+
 ##  (2026-01-29)
 
 * :arrow_up: Upgrade(custom): upgrade deps to latest 5334b5d

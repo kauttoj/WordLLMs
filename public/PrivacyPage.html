@@ -28,12 +28,6 @@
       margin-bottom: 20px;
     }
 
-    h4 {
-      font-size: 1.4rem;
-      margin-top: 30px;
-      margin-bottom: 10px;
-    }
-
     p {
       margin-top: 0;
       margin-bottom: 20px;
@@ -62,40 +56,39 @@
   <div class="container">
     <h1>Privacy Policy</h1>
     <p>
-      This Privacy Policy describes how we collect, use, and disclose information when you use our Word GPT Plus add-in
-      for Microsoft Word.
+      This Privacy Policy describes how WordLLMs handles your data.
     </p>
-    <h2>Information We Collect</h2>
-    <p>We may collect the following information:</p>
+    <h2>No Data Collection</h2>
+    <p>
+      WordLLMs does <strong>not</strong> collect, track, store, or transmit any user data to us or to any
+      third-party analytics or tracking service. There is no telemetry, no usage analytics, and no tracking of any kind
+      built into this application.
+    </p>
+    <h2>Where Your Data Goes</h2>
+    <p>All data processing happens locally on your machine, with one important exception:</p>
     <ul>
-      <li>Usage Information: We may collect information about how you use Word GPT Plus, including the features you use,
-        the prompts you generate, and the text you input into the add-in.</li>
+      <li><strong>AI Provider Requests:</strong> When you send a message, your input is sent directly to the AI provider
+        you have configured (e.g., OpenAI, Azure OpenAI, Google Gemini, Groq, Ollama, LMStudio). This communication is
+        between your machine and the provider's API &mdash; we are not involved and have no access to these
+        requests or responses.</li>
     </ul>
-    <h2>Use of Information</h2>
-    <p>We use the information we collect to provide, maintain, and improve Word GPT Plus, including:</p>
-    <ul>
-      <li>To generate text based on the input provided by the user</li>
-      <li>To customize and personalize the prompts and features available to the user</li>
-      <li>To analyze and improve the performance and usability of Word GPT Plus</li>
-      <li>To troubleshoot technical issues and provide customer support</li>
-    </ul>
-    <h2>Disclosure of Information</h2>
-    <p>We may disclose usage information we collect to our service providers who perform services on our behalf, such as
-      hosting, data analytics, and customer support.</p>
-    <h2>Security</h2>
-    <p>We take reasonable measures to protect the security of your personal information, including implementing
-      appropriate technical and organizational measures to prevent unauthorized access, disclosure, alteration, or
-      destruction of your personal information.</p>
-    <h2>Access, Correction, and Deletion of Information</h2>
-    <p>You may have the right to access, correct, or delete the personal information we hold about you. If you wish to
-      exercise these rights, please contact us using the contact information provided below.</p>
-        <h2>Updates to this Privacy Policy</h2>
-        <p>We may update this Privacy Policy from time to time. If we make material changes to this policy, we will
-          notify you by email or by posting a notice on our website prior to the effective date of the changes.</p>
-        <h2>Contact Us</h2>
-        <p>If you have any questions or concerns about this Privacy Policy or our data practices, please contact us at
-         <a href="https://github.com/Kuingsmile/word-GPT-Plus" target="_blank"> https://github.com/Kuingsmile/word-GPT-Plus</a>.</p>
-      </div>
-    </body>
+	<p>For any sensitive data, we recommend either using local LLM or setting up secure cloud account in Azure.</p>
+    <h2>Local Storage</h2>
+    <p>
+      Your settings, API keys, and conversation history are stored locally in your browser's localStorage and IndexedDB.
+      This data never leaves your machine unless you explicitly send it to an AI provider as part of a conversation.
+    </p>
+    <h2>API Keys</h2>
+    <p>
+      API keys you enter are stored only in your browser's localStorage. They are sent directly to the respective AI
+      provider when making requests. We never receive, store, or have access to your API keys.
+    </p>
+    <h2>Third-Party Services</h2>
+    <p>
+      If you enable web search functionality, search queries are sent to the Tavily Search API using your own API key.
+      This is an optional feature that you control entirely.
+    </p>
+  </div>
+</body>
 
-    </html>
+</html>

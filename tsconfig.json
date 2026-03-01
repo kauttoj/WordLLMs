@@ -16,10 +16,10 @@
     "baseUrl": ".",
     "types": ["office-js", "element-plus/global"],
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/frontend/*"]
     },
     "lib": ["esnext", "dom", "dom.iterable", "scripthost"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"],
+  "include": ["src/frontend/**/*.ts", "src/frontend/**/*.tsx", "src/frontend/**/*.vue"],
   "exclude": ["node_modules"]
 }
