@@ -42,7 +42,7 @@ WordLLMs brings the full power of modern LLMs directly into Microsoft Word. It's
 
 The application is powered by a **Python/FastAPI backend** using **LangChain** and **LangGraph** for agent orchestration, with a **Vue 3** frontend that communicates via Server-Sent Events for real-time streaming.
 
-![Image](https://github.com/user-attachments/assets/e5b077ca-b8d4-4e28-97c7-b708524e1188)
+![Image](https://github.com/kauttoj/WordLLMs/blob/master/public/screenshot.png)
 
 ## Features
 
@@ -326,3 +326,4 @@ MIT License
 ## Show your support
 
 Give a star if you find this app useful.
+
