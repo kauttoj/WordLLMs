@@ -159,14 +159,22 @@ WordLLMs is essentially a "mini" website inside Word, Word only presents it. As 
 
    Create the folder first if it doesn't exist.
 
-2. Pull and run the Docker image. Open **Command Prompt** and run:
+2. Pull and run the Docker image. Open **Command Prompt** and at the FIRST time, run:
 
    ```
    docker pull kauttoj/wordllms
-   docker run -p 3000:8000 -v "C:\Users\YourName\WordLLMs:/app/data" kauttoj/wordllms
+   docker run --name wordllms -p 3000:8000 -v "C:\Users\YourName\WordLLMs:/app/data" kauttoj/wordllms
    ```
 
    Replace `C:\Users\YourName\WordLLMs` with the folder you chose in step 1. Keep the `:/app/data` part exactly as shown — that is the path inside the container and must not be changed.
+
+   Later, when you restart your app, run
+   
+   ```
+   docker start wordllms
+   ```
+
+   which restart the old container without creating a new one. You can also start the image from Docker Desktop by clicking the image. You can learn more at https://www.docker.com/blog/getting-started-with-docker-desktop
 
    > **Why this matters**: Your conversation history is stored in a file on your PC. The `-v` flag is how Docker links your chosen Windows folder to the app running inside the container. Without it, all conversations are permanently lost every time the container stops. The app's file browser can only access folders that were linked this way at startup — you cannot change the folder later from inside the app.
 
