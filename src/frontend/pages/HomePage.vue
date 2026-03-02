@@ -205,9 +205,10 @@
               <textarea
                 v-if="entry.msg instanceof HumanMessage && editingMessageIndex === entry.displayIndex"
                 v-model="editText"
-                class="max-w-[95%] resize-none rounded-md border border-accent/30 bg-bg-secondary p-1 text-sm text-main"
-                rows="3"
+                :ref="(el) => el instanceof HTMLTextAreaElement && nextTick(() => resizeEditTextarea(el))"
+                class="w-full max-w-[95%] resize-none overflow-y-hidden rounded-md border border-accent/30 bg-bg-secondary p-1 text-sm text-main"
                 @keydown.ctrl.enter="submitEdit"
+                @input="(e) => resizeEditTextarea(e.target as HTMLTextAreaElement)"
               />
               <!-- Attachment indicators for user messages -->
               <div
@@ -413,7 +414,7 @@
           </div>
         </div>
         <div
-          class="flex min-w-12 flex-col gap-1 rounded-md border border-border bg-surface p-2 focus-within:border-accent"
+          class="flex min-w-12 flex-1 min-h-0 flex-col gap-1 rounded-md border border-border bg-surface p-2 focus-within:border-accent"
           @dragover="handleDragOver"
           @drop="handleDrop"
         >
@@ -441,11 +442,11 @@
               </button>
             </div>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-1 min-h-0 items-start gap-2">
             <textarea
               ref="inputTextarea"
               v-model="userInput"
-              class="placeholder::text-secondary block flex-1 resize-none overflow-y-auto border-none bg-transparent py-2 text-xs leading-normal text-main outline-none placeholder:text-xs"
+              class="placeholder::text-secondary block flex-1 self-stretch resize-none overflow-y-auto border-none bg-transparent py-2 text-xs leading-normal text-main outline-none placeholder:text-xs"
               :placeholder="
                 mode === 'ask'
                   ? $t('askAnything')
@@ -453,9 +454,7 @@
                     ? $t('directTheMultiagent')
                     : $t('directTheAgent')
               "
-              rows="1"
               @keydown.enter.exact.prevent="sendMessage"
-              @input="adjustTextareaHeight"
             />
             <button
               class="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-secondary hover:text-accent"
@@ -955,6 +954,7 @@ watch(loading, isLoading => {
   }
 })
 
+
 const loadingTimeDisplay = computed(() => {
   const m = Math.floor(loadingElapsed.value / 60)
   const s = loadingElapsed.value % 60
@@ -1123,22 +1123,7 @@ function stopGeneration() {
   loading.value = false
 }
 
-function adjustTextareaHeight() {
-  if (!inputTextarea.value) return
-
-  inputTextarea.value.style.height = 'auto'
-
-  let maxHeight = 120
-
-  if (inputAreaContainer.value) {
-    const inputAreaHeight = inputAreaContainer.value.clientHeight
-    const fixedElementsHeight = 150
-    maxHeight = Math.max(120, inputAreaHeight - fixedElementsHeight)
-  }
-
-  const newHeight = Math.min(inputTextarea.value.scrollHeight, maxHeight)
-  inputTextarea.value.style.height = newHeight + 'px'
-}
+function adjustTextareaHeight() {}
 
 async function scrollToBottom() {
   await nextTick()
@@ -1684,6 +1669,11 @@ function truncateHistoryAndMaps(fromIndex: number) {
   for (const key of [...messageAttachmentsMap.keys()]) {
     if (key >= fromIndex) messageAttachmentsMap.delete(key)
   }
+}
+
+function resizeEditTextarea(el: HTMLTextAreaElement) {
+  el.style.height = 'auto'
+  el.style.height = el.scrollHeight + 'px'
 }
 
 function startEdit(index: number) {
