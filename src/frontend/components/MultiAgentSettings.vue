@@ -48,7 +48,7 @@
             <option value="groq">Groq</option>
             <option value="ollama">Ollama</option>
             <option value="lmstudio">LM Studio</option>
-            <option value="azure">Azure OpenAI</option>
+            <option value="azure">Azure</option>
           </select>
         </div>
 
@@ -90,7 +90,7 @@
             <option value="groq">Groq</option>
             <option value="ollama">Ollama</option>
             <option value="lmstudio">LM Studio</option>
-            <option value="azure">Azure OpenAI</option>
+            <option value="azure">Azure</option>
           </select>
         </div>
 
@@ -133,7 +133,7 @@
               <option value="groq">Groq</option>
               <option value="ollama">Ollama</option>
               <option value="lmstudio">LM Studio</option>
-              <option value="azure">Azure OpenAI</option>
+              <option value="azure">Azure</option>
             </select>
           </div>
 
@@ -172,6 +172,7 @@ import type { MultiAgentConfig, supportedProviders } from '@/api/types'
 import {
   availableModels,
   availableModelsForAnthropic,
+  availableModelsForAzure,
   availableModelsForGemini,
   availableModelsForGroq,
   availableModelsForOllama,
@@ -243,9 +244,15 @@ const getModelsForProvider = (provider: string): string[] => {
       return availableModelsForGroq
     case 'ollama':
       return availableModelsForOllama
-    case 'azure':
-    case 'lmstudio':
-      return []
+    case 'azure': {
+      const azureStored = localStorage.getItem('azureCustomModels')
+      const azureCustom: string[] = azureStored ? JSON.parse(azureStored) : []
+      return [...availableModelsForAzure, ...azureCustom]
+    }
+    case 'lmstudio': {
+      const lmStored = localStorage.getItem('lmstudioCustomModels')
+      return lmStored ? JSON.parse(lmStored) : []
+    }
     default:
       return []
   }

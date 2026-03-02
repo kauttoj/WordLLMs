@@ -47,5 +47,6 @@ COPY --from=build-stage /app/dist ./dist/
 EXPOSE 8000
 
 ENV DATA_DIR=/app/data
+ENV RUNNING_IN_DOCKER=1
 
 CMD ["uvicorn", "src.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

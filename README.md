@@ -227,7 +227,8 @@ Full instructions from Microsoft: [Sideload Office Add-ins](https://learn.micros
 9. Select the **Show in Menu** check box, and then choose **OK**.
 ![image](https://learn.microsoft.com/en-us/office/dev/add-ins/images/sideload-windows-trust-center-dialog.png)
 10. Close and then restart Word.
-11. Click **Insert** > **My Add-ins** > **Shared Folder**, choose **WordLLMs**, and then choose **Add**.
+11. For older Word: Click **Insert** > **My Add-ins** > **Shared Folder**, choose **WordLLMs**, and then choose **Add**.
+    For current Word: Click **Home** > **Add-ins** > click **WordLLMs**
 12. Enjoy!
 
 ## Usage

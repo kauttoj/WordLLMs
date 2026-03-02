@@ -30,6 +30,16 @@ function initializeSettings(): Record<string, SettingValue> {
     localStorage.setItem(localStorageKey.api, 'gemini')
   }
 
+  // Auto-select migrated Azure deployment
+  if (
+    !settings.azureModelSelect &&
+    Array.isArray(settings.azureCustomModels) &&
+    (settings.azureCustomModels as string[]).length > 0
+  ) {
+    settings.azureModelSelect = (settings.azureCustomModels as string[])[0]
+    localStorage.setItem(localStorageKey.azureModel, settings.azureModelSelect as string)
+  }
+
   return settings
 }
 

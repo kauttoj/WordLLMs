@@ -30,6 +30,8 @@ export const localStorageKey = {
   azureMaxContextTokens: 'azureMaxContextTokens',
   azureTemperature: 'azureTemperature',
   azureAPIVersion: 'azureAPIVersion',
+  azureModel: 'azureModel',
+  azureCustomModels: 'azureCustomModels',
   // gemini api
   geminiAPIKey: 'geminiAPIKey',
   geminiMaxContextTokens: 'geminiMaxContextTokens',
@@ -56,6 +58,9 @@ export const localStorageKey = {
   lmstudioFilterThinking: 'lmstudioFilterThinking',
   lmstudioMaxContextTokens: 'lmstudioMaxContextTokens',
   lmstudioTemperature: 'lmstudioTemperature',
+  lmstudioModel: 'lmstudioModel',
+  lmstudioCustomModel: 'lmstudioCustomModel',
+  lmstudioCustomModels: 'lmstudioCustomModels',
   // anthropic api
   anthropicAPIKey: 'anthropicAPIKey',
   anthropicModel: 'anthropicModel',

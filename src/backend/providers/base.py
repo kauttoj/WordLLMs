@@ -1,5 +1,21 @@
+import os
 from typing import Any, Literal
+from urllib.parse import urlparse, urlunparse
+
 from langchain_core.language_models.chat_models import BaseChatModel
+
+_IN_DOCKER = os.environ.get("RUNNING_IN_DOCKER") == "1"
+
+
+def fix_localhost_for_docker(url: str) -> str:
+    """Rewrite localhost/127.0.0.1 to host.docker.internal when in Docker."""
+    if not _IN_DOCKER:
+        return url
+    parsed = urlparse(url)
+    if parsed.hostname in ("localhost", "127.0.0.1"):
+        replaced = parsed._replace(netloc=parsed.netloc.replace(parsed.hostname, "host.docker.internal"))
+        return urlunparse(replaced)
+    return url
 
 
 def get_model_name(model: BaseChatModel) -> str:

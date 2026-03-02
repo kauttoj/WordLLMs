@@ -1005,7 +1005,12 @@ const currentModelOptions = computed(() => {
       customModels = getCustomModels('groqCustomModels', 'groqCustomModel')
       break
     case 'azure':
-      return []
+      presetOptions = settingPreset.azureModelSelect.optionList || []
+      customModels = getCustomModels('azureCustomModels', 'azureDeploymentName')
+      break
+    case 'lmstudio':
+      customModels = getCustomModels('lmstudioCustomModels', 'lmstudioCustomModel')
+      break
     default:
       return []
   }
@@ -1039,7 +1044,9 @@ const currentModelSelect = computed({
       case 'groq':
         return settingForm.value.groqModelSelect
       case 'azure':
-        return settingForm.value.azureDeploymentName
+        return settingForm.value.azureModelSelect
+      case 'lmstudio':
+        return settingForm.value.lmstudioModelSelect
       default:
         return ''
     }
@@ -1067,8 +1074,12 @@ const currentModelSelect = computed({
         localStorage.setItem(localStorageKey.groqModel, value)
         break
       case 'azure':
-        settingForm.value.azureDeploymentName = value
-        localStorage.setItem(localStorageKey.azureDeploymentName, value)
+        settingForm.value.azureModelSelect = value
+        localStorage.setItem(localStorageKey.azureModel, value)
+        break
+      case 'lmstudio':
+        settingForm.value.lmstudioModelSelect = value
+        localStorage.setItem(localStorageKey.lmstudioModel, value)
         break
     }
   },
@@ -1320,7 +1331,7 @@ async function processChat(
       provider: 'azure',
       azureAPIKey: settings.azureAPIKey,
       azureAPIEndpoint: settings.azureAPIEndpoint,
-      azureDeploymentName: settings.azureDeploymentName,
+      azureDeploymentName: settings.azureModelSelect,
       azureAPIVersion: settings.azureAPIVersion,
       maxContextTokens: settings.azureMaxContextTokens,
       temperature: settings.azureTemperature,
@@ -1343,6 +1354,7 @@ async function processChat(
       provider: 'lmstudio',
       lmstudioEndpoint: settings.lmstudioEndpoint,
       lmstudioFilterThinking: settings.lmstudioFilterThinking,
+      lmstudioModel: (settings.lmstudioModelSelect as string) || undefined,
       temperature: settings.lmstudioTemperature,
       maxContextTokens: settings.lmstudioMaxContextTokens,
     },
@@ -1393,7 +1405,7 @@ async function processChat(
     } else if (provider === 'azure') {
       config.azureDeploymentName = model
     } else if (provider === 'lmstudio') {
-      // lmstudio doesn't have a model field, it auto-detects
+      config.lmstudioModel = model
     }
 
     return config

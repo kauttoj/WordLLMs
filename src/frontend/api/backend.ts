@@ -141,7 +141,10 @@ function buildCredentials(options: ProviderOptions | AgentOptions): BackendCrede
 }
 
 function getModelName(options: ProviderOptions | AgentOptions): string {
-  if (options.provider === 'lmstudio') return 'default'
+  if (options.provider === 'lmstudio') {
+    if ('lmstudioModel' in options && options.lmstudioModel) return options.lmstudioModel
+    return 'default'
+  }
   if ('model' in options && options.model) return options.model
   if ('anthropicModel' in options && options.anthropicModel) return options.anthropicModel
   if ('ollamaModel' in options && options.ollamaModel) return options.ollamaModel
@@ -700,7 +703,7 @@ function buildExpertConfig(expert: MultiAgentExpertConfig): any {
 
   let model: string | undefined
   if (expert.provider === 'lmstudio') {
-    model = 'default'
+    model = expert.lmstudioModel || 'default'
   } else if (expert.model) {
     model = expert.model
   } else if (expert.ollamaModel) {

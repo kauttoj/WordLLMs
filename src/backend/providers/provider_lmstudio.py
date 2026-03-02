@@ -2,6 +2,11 @@ from typing import Any
 
 from langchain_openai import ChatOpenAI
 
+try:
+    from .base import fix_localhost_for_docker
+except ImportError:
+    from base import fix_localhost_for_docker
+
 
 def _normalize_base_url(url: str) -> str:
     """Ensure base_url points to OpenAI-compatible /v1 endpoint.
@@ -29,7 +34,7 @@ def create_lmstudio_model(
     kwargs: dict[str, Any] = {
         "model": model or "default",
         "api_key": "not-needed",
-        "base_url": _normalize_base_url(credentials.get("base_url", "http://localhost:1234/v1")),
+        "base_url": fix_localhost_for_docker(_normalize_base_url(credentials.get("base_url", "http://localhost:1234/v1"))),
         "temperature": temperature,
         "max_retries": max_retries,
     }

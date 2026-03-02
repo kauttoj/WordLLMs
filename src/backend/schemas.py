@@ -26,9 +26,9 @@ class OpenAICredentials(BaseModel):
 
 class AzureCredentials(BaseModel):
     api_key: str
-    endpoint: str
+    endpoint: str = ""
     api_version: str = "2024-02-15-preview"
-    deployment_name: str
+    deployment_name: str = ""
 
 
 class GeminiCredentials(BaseModel):

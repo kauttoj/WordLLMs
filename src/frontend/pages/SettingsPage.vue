@@ -763,7 +763,7 @@ const getCustomModelsKey = (platform: string): SettingNames | null => {
 }
 
 const loadCustomModels = () => {
-  const platforms = ['official', 'gemini', 'ollama', 'groq']
+  const platforms = ['official', 'anthropic', 'gemini', 'ollama', 'groq', 'azure', 'lmstudio']
   platforms.forEach(platform => {
     const key = getCustomModelsKey(platform)
     if (key && settingPreset[key].getFunc) {

@@ -57,6 +57,7 @@ export interface LmstudioOptions extends BaseChatCompletionOptions {
   provider: 'lmstudio'
   lmstudioEndpoint?: string
   lmstudioFilterThinking?: boolean
+  lmstudioModel?: string
 }
 
 export interface AnthropicOptions extends BaseChatCompletionOptions {
@@ -103,6 +104,7 @@ export interface AgentOptions extends BaseChatCompletionOptions {
   azureAPIVersion?: string
   lmstudioEndpoint?: string
   lmstudioFilterThinking?: boolean
+  lmstudioModel?: string
   anthropicModel?: string
   anthropicAPIKey?: string
 }
@@ -130,6 +132,7 @@ export interface MultiAgentExpertConfig {
   azureAPIVersion?: string
   lmstudioEndpoint?: string
   lmstudioFilterThinking?: boolean
+  lmstudioModel?: string
   anthropicModel?: string
   anthropicAPIKey?: string
 }

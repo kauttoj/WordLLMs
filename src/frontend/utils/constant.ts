@@ -101,6 +101,9 @@ export const availableModelsForAnthropic: string[] = [
   'claude-haiku-4-5',
 ]
 
+// Azure: combined OpenAI + Anthropic models (custom AI Services models added by user)
+export const availableModelsForAzure: string[] = [...availableModels, ...availableModelsForAnthropic]
+
 import {
   BookOpen,
   CheckCircle,

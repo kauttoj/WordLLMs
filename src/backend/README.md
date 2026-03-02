@@ -190,7 +190,12 @@ With streaming disabled, responses return all at once instead of token-by-token,
 
 ## Environment Variables
 
-None required — all config (API keys, model selection, parameters) is passed via API request body.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_DIR` | `./data` | Directory for SQLite databases and config |
+| `RUNNING_IN_DOCKER` | *(unset)* | Set to `1` in Docker. Rewrites `localhost` URLs to `host.docker.internal` so local LLM providers (Ollama, LM Studio) are reachable from the container |
+
+All other config (API keys, model selection, parameters) is passed via API request body.
 
 ## Logs
 
