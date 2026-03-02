@@ -293,35 +293,23 @@ For each AI provider:
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────┐
-│  Microsoft Word (Office.js)                 │
-│  ┌───────────────────────────────────────┐  │
-│  │  Vue 3 Frontend (TypeScript)          │  │
-│  │  - Chat / Agent / Multi-Agent UI      │  │
-│  │  - 25+ Word tools via Office.js       │  │
-│  │  - SSE streaming client               │  │
-│  └───────────────┬───────────────────────┘  │
-└──────────────────┼──────────────────────────┘
-                   │ SSE (Server-Sent Events)
-┌──────────────────┼──────────────────────────┐
-│  Python Backend  │  (FastAPI)               │
-│  ┌───────────────┴───────────────────────┐  │
-│  │  LangGraph Agents                     │  │
-│  │  - Single Agent (tool loop)           │  │
-│  │  - Multi-Agent (parallel/collab)      │  │
-│  ├───────────────────────────────────────┤  │
-│  │  LangChain Providers                  │  │
-│  │  OpenAI · Anthropic · Gemini · Azure  │  │
-│  │  Groq · Ollama · LM Studio            │  │
-│  ├───────────────────────────────────────┤  │
-│  │  Server Tools                         │  │
-│  │  Web search · URL fetch · Math · Date │  │
-│  ├───────────────────────────────────────┤  │
-│  │  SQLite Conversation Store            │  │
-│  │  Unified history across all modes     │  │
-│  └───────────────────────────────────────┘  │
-└─────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph Word["Microsoft Word (Office.js)"]
+        FE["Vue 3 Frontend (TypeScript)\nChat · Agent · Multi-Agent UI\n25+ Word tools via Office.js\nSSE streaming client"]
+    end
+
+    FE -- "SSE (Server-Sent Events)" --> Agents
+
+    subgraph Backend["Python Backend (FastAPI)"]
+        Agents["LangGraph Agents\nSingle Agent · Multi-Agent parallel/collab"]
+        Providers["LangChain Providers\nOpenAI · Anthropic · Gemini · Azure\nGroq · Ollama · LM Studio"]
+        Tools["Server Tools\nWeb search · URL fetch · Math · Date"]
+        DB["SQLite Conversation Store\nUnified history across all modes"]
+        Agents --> Providers
+        Agents --> Tools
+        Agents --> DB
+    end
 ```
 
 ## Privacy & Security
