@@ -11,7 +11,8 @@
       "Bash(node_modules/.bin/eslint src/frontend/ --max-warnings=9999)",
       "Bash(test -f /c/code/WordLLMs/src/backend/requirements.txt)",
       "Bash(git diff --no-pager HEAD -- \"*.ts\" \"*.py\" \"*.vue\" \"*.json\" \"*.yml\")",
-      "Bash(xargs grep -l \"trim_to_fit\\\\|context\")"
+      "Bash(xargs grep -l \"trim_to_fit\\\\|context\")",
+      "Bash(git remote get-url origin)"
     ]
   }
 }
