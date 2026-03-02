@@ -204,7 +204,7 @@ WordLLMs is essentially a "mini" website inside Word, Word only presents it. As 
 3. Start the backend (serves both the API and built frontend static files):
 
    ```bash
-  uvicorn src.backend.main:app --host 0.0.0.0 --port 3000
+   uvicorn src.backend.main:app --host 0.0.0.0 --port 3000
    ```
 
 4. Download [manifest.xml](https://github.com/kauttoj/WordLLMs/blob/master/release/self-hosted/manifest.xml) and update the URLs to match your server address.
