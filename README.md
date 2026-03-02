@@ -149,8 +149,7 @@ You need an API key from at least one provider:
 
 ## Installation
 
-WordLLMs is essentiall a "mini" website inside Word, Word only presents ir. You need to serve this website outside Word.
-Choose the method that best suits your needs:
+WordLLMs is essentially a "mini" website inside Word, Word only presents it. As results, you need to serve WordLLMs application outside Word. Choose the method that best suits your needs:
 
 ### Method 1: Docker Deployment (Recommended)
 
@@ -178,7 +177,7 @@ Choose the method that best suits your needs:
    Click the folder icon to browse existing `.db` files, or type the path directly. This path always uses the `/app/data` form regardless of what Windows folder you chose — Docker translates it automatically.
 
 4. Download [manifest.xml](https://github.com/kauttoj/WordLLMs/blob/master/release/self-hosted/manifest.xml).
-5. [Optional for developers: Edit `manifest.xml`: Replace all instances of `localhost:3000` with your server's address and port (e.g., `localhost:8000`).]
+5. [Optional: Edit `manifest.xml` if you changed the host port in the `docker run` command (e.g., if you used `-p 8080:8000`, replace `localhost:3000` with `localhost:8080`).]
 6. Proceed to the [Add-in Installation Guide](#add-in-installation-guide).
 
 > All processing happens in the container, it's the "brains" of the app. You need to run the Docker image (or Python app) each time you use WordLLMs. Your either do this via terminal OR Docker desktop client.
@@ -205,7 +204,7 @@ Choose the method that best suits your needs:
 3. Start the backend (serves both the API and built frontend static files):
 
    ```bash
-   uvicorn src.backend.main:app --host 0.0.0.0 --port 8000
+  uvicorn src.backend.main:app --host 0.0.0.0 --port 3000
    ```
 
 4. Download [manifest.xml](https://github.com/kauttoj/WordLLMs/blob/master/release/self-hosted/manifest.xml) and update the URLs to match your server address.
