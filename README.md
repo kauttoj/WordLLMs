@@ -155,16 +155,30 @@ Choose the method that best suits your needs:
 
 ### Method 1: Docker Deployment (Recommended)
 
-1. Pull and run the Docker image:
+1. **Choose a folder on your PC** where WordLLMs will store your conversation history. For example: `C:\Users\YourName\WordLLMs`
 
-   ```bash
+   Create the folder first if it doesn't exist.
+
+2. Pull and run the Docker image. Open **Command Prompt** and run:
+
+   ```
    docker pull kauttoj/wordllms
-   docker run -p 3000:8000 kauttoj/wordllms
+   docker run -p 3000:8000 -v "C:\Users\YourName\WordLLMs:/app/data" kauttoj/wordllms
    ```
 
-2. Download [manifest.xml](https://github.com/kauttoj/WordLLMs/blob/master/release/self-hosted/manifest.xml).
-3. Edit `manifest.xml`: Replace all instances of `localhost:3000` with your server's address and port (e.g., `localhost:8000`).
-4. Proceed to the [Add-in Installation Guide](#add-in-installation-guide).
+   Replace `C:\Users\YourName\WordLLMs` with the folder you chose in step 1. Keep the `:/app/data` part exactly as shown — that is the path inside the container and must not be changed.
+
+   > **Why this matters**: Your conversation history is stored in a file on your PC. The `-v` flag is how Docker links your chosen Windows folder to the app running inside the container. Without it, all conversations are permanently lost every time the container stops. The app's file browser can only access folders that were linked this way at startup — you cannot change the folder later from inside the app.
+
+3. Open WordLLMs in Word, go to **Settings** and set **History Database Path** to:
+   ```
+   /app/data/conversations.db
+   ```
+   Click the folder icon to browse existing `.db` files, or type the path directly. This path always uses the `/app/data` form regardless of what Windows folder you chose — Docker translates it automatically.
+
+4. Download [manifest.xml](https://github.com/kauttoj/WordLLMs/blob/master/release/self-hosted/manifest.xml).
+5. Edit `manifest.xml`: Replace all instances of `localhost:3000` with your server's address and port (e.g., `localhost:8000`).
+6. Proceed to the [Add-in Installation Guide](#add-in-installation-guide).
 
 ### Method 2: Build from Source
 

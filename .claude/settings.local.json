@@ -15,7 +15,15 @@
       "Bash(git remote get-url origin)",
       "Bash(docker build -t kauttoj/wordllms .)",
       "Bash(python -c \":*)",
-      "Bash(echo \"Check done: exit $?\")"
+      "Bash(echo \"Check done: exit $?\")",
+      "Bash(xargs grep -l \"browse-dir\\\\|browse_dir\")",
+      "Bash(find /c/code/WordLLMs -name \"*.py\" -type f -exec grep -l \"def.*serve_static\\\\|FileResponse\" {} ;)",
+      "Bash(python3:*)",
+      "Bash(xargs grep -l \"history.*path\\\\|db_path\\\\|database\")",
+      "Bash(pip show langchain-openai)",
+      "Bash(pip show openai)",
+      "Bash(python -c \"import langchain_openai; import inspect; src = inspect.getsource\\(langchain_openai.ChatOpenAI.__init__\\); print\\(src[:3000]\\)\")",
+      "Bash(curl -s -X POST http://localhost:1234/v1/chat/completions -H \"Content-Type: application/json\" -d '{\"\"model\"\": \"\"openai/gpt-oss-20b\"\", \"\"messages\"\": [{\"\"role\"\": \"\"user\"\", \"\"content\"\": \"\"Say hello in one word\"\"}], \"\"max_tokens\"\": 10}')"
     ]
   }
 }

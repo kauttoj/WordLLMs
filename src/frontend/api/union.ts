@@ -33,6 +33,17 @@ export function setBackendEnabled(enabled: boolean): void {
   localStorage.setItem('useBackend', enabled ? 'true' : 'false')
 }
 
+/** Normalize LMStudio URL to OpenAI-compatible /v1 base. */
+function normalizeLmstudioUrl(url?: string): string {
+  if (!url) return 'http://localhost:1234/v1'
+  url = url.replace(/\/+$/, '')
+  for (const marker of ['/api/v1', '/v1']) {
+    const idx = url.indexOf(marker)
+    if (idx !== -1) return url.substring(0, idx) + '/v1'
+  }
+  return url + '/v1'
+}
+
 const ModelCreators: Record<string, (opts: any) => BaseChatModel> = {
   official: (opts: OpenAIOptions) => {
     const modelName = opts.model || 'gpt-5.2'
@@ -100,7 +111,7 @@ const ModelCreators: Record<string, (opts: any) => BaseChatModel> = {
       modelName: 'default',
       configuration: {
         apiKey: 'not-needed',
-        baseURL: opts.lmstudioEndpoint?.replace(/\/$/, '') || 'http://localhost:1234/v1',
+        baseURL: normalizeLmstudioUrl(opts.lmstudioEndpoint),
       },
       temperature: opts.temperature ?? 1.0,
       maxTokens: opts.maxTokens ?? 4000,

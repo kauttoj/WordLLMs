@@ -19,6 +19,7 @@ Persistence:
 """
 
 import json
+import os
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -149,7 +150,8 @@ def _deserialize_message(data: dict[str, Any]) -> BaseMessage:
 # Default DB path
 # ---------------------------------------------------------------------------
 
-DEFAULT_DB_PATH = str(Path(__file__).parent / "data" / "conversations.db")
+_DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
+DEFAULT_DB_PATH = str(_DATA_DIR / "conversations.db")
 MAX_THREADS = 500
 
 

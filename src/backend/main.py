@@ -3,9 +3,7 @@ import sys
 from pathlib import Path
 from typing import AsyncGenerator
 
-import asyncio
-
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
@@ -26,10 +24,10 @@ from .providers import create_model
 from .tools import get_tools, ALL_TOOLS
 from .agents import stream_chat, stream_agent, resume_agent, get_session_info
 from .agents.chat_multiagent import stream_multiagent, resume_multiagent
-from .conversation_store import ConversationStore, DEFAULT_DB_PATH
+from .conversation_store import ConversationStore, DEFAULT_DB_PATH, _DATA_DIR
 
 DIST_DIR = Path(__file__).parent.parent.parent / "dist"
-CONFIG_PATH = Path(__file__).parent / "data" / "config.json"
+CONFIG_PATH = _DATA_DIR / "config.json"
 
 
 def _read_db_path_from_config() -> str:
@@ -445,33 +443,21 @@ async def set_history_path(request: HistoryPathRequest):
     return {"path": new_path}
 
 
-def _open_file_dialog(initial_path: str) -> str:
-    """Open a native file dialog (runs in a thread to avoid blocking)."""
-    import tkinter as tk
-    from tkinter import filedialog
-
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
-    file_path = filedialog.asksaveasfilename(
-        title="Select History Database File",
-        defaultextension=".db",
-        filetypes=[("SQLite Database", "*.db"), ("All Files", "*.*")],
-        initialdir=str(Path(initial_path).parent),
-        initialfile=Path(initial_path).name,
-        confirmoverwrite=False,
-    )
-    root.destroy()
-    return file_path
-
-
-@app.post("/api/history/browse")
-async def browse_history_file():
-    """Open a native file dialog to let the user pick a .db file path."""
-    selected = await asyncio.get_event_loop().run_in_executor(
-        None, _open_file_dialog, conversation_store.db_path
-    )
-    return {"path": selected or ""}
+@app.get("/api/history/browse-dir")
+async def browse_directory(path: str = ""):
+    """List directory contents for the web-based file browser."""
+    target = Path(path) if path else Path(conversation_store.db_path).parent
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=400, detail=f"Directory not found: {target}")
+    try:
+        entries = []
+        for item in sorted(target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+            if item.is_dir() or item.suffix == ".db":
+                entries.append({"name": item.name, "path": str(item), "is_dir": item.is_dir()})
+        parent = str(target.parent) if target.parent != target else None
+        return {"current_path": str(target), "parent_path": parent, "entries": entries}
+    except PermissionError:
+        raise HTTPException(status_code=403, detail=f"Permission denied: {target}")
 
 
 # Serve static files

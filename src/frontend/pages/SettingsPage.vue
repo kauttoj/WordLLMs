@@ -118,6 +118,36 @@
                   />
                 </template>
               </CustomInput>
+              <!-- Server-side file browser -->
+              <div v-show="fileBrowser.isOpen" class="mt-2 rounded-md border border-border bg-bg-tertiary p-2 text-sm">
+                <div class="mb-1.5 flex items-center gap-2">
+                  <button
+                    v-if="fileBrowser.parentPath"
+                    class="shrink-0 text-accent hover:underline"
+                    @click="navigateDir(fileBrowser.parentPath!)"
+                  >
+                    &uarr; Up
+                  </button>
+                  <span class="flex-1 truncate text-xs text-tertiary">{{ fileBrowser.currentPath }}</span>
+                  <button class="shrink-0 text-secondary hover:text-main" @click="fileBrowser.isOpen = false">
+                    &times;
+                  </button>
+                </div>
+                <div class="max-h-48 overflow-y-auto">
+                  <div
+                    v-for="entry in fileBrowser.entries"
+                    :key="entry.path"
+                    class="flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-1 hover:bg-bg-secondary"
+                    @click="entry.is_dir ? navigateDir(entry.path) : selectDbFile(entry.path)"
+                  >
+                    <span class="shrink-0 text-xs">{{ entry.is_dir ? '\uD83D\uDCC1' : '\uD83D\uDCC4' }}</span>
+                    <span class="truncate">{{ entry.name }}</span>
+                  </div>
+                  <div v-if="fileBrowser.entries.length === 0" class="px-1.5 py-1 text-tertiary">
+                    No .db files or subdirectories
+                  </div>
+                </div>
+              </div>
             </SettingCard>
             <SettingCard>
               <CustomInput
@@ -571,7 +601,7 @@ import { onBeforeMount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
-import { browseHistoryFile, getHistoryPath, setHistoryPath } from '@/api/backend'
+import { browseDirContents, getHistoryPath, setHistoryPath } from '@/api/backend'
 import type { MultiAgentConfig } from '@/api/types'
 import CustomButton from '@/components/CustomButton.vue'
 import CustomInput from '@/components/CustomInput.vue'
@@ -1023,14 +1053,35 @@ watch(
   },
 )
 
+// Server-side file browser state
+const fileBrowser = ref({
+  isOpen: false,
+  currentPath: '',
+  parentPath: null as string | null,
+  entries: [] as { name: string; path: string; is_dir: boolean }[],
+})
+
+const navigateDir = async (path: string) => {
+  const result = await browseDirContents(path)
+  fileBrowser.value = {
+    isOpen: true,
+    currentPath: result.current_path,
+    parentPath: result.parent_path,
+    entries: result.entries,
+  }
+}
+
+const selectDbFile = (path: string) => {
+  settingForm.value.historyDbPath = path
+  fileBrowser.value.isOpen = false
+}
+
 const browseDbFile = async () => {
   try {
-    const selected = await browseHistoryFile()
-    if (selected) {
-      settingForm.value.historyDbPath = selected
-    }
+    await navigateDir('')
   } catch (err) {
-    console.error('[Settings] Failed to browse for DB file:', err)
+    console.error('[Settings] Failed to open file browser:', err)
+    alert(err instanceof Error ? err.message : String(err))
   }
 }
 
