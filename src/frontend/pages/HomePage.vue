@@ -833,7 +833,7 @@ const loadMultiAgentConfig = (): MultiAgentConfig | null => {
       const parsed = JSON.parse(stored) as MultiAgentConfig
       // Migrate: ensure operatingMode exists
       if (!parsed.operatingMode) {
-        parsed.operatingMode = 'combined'
+        parsed.operatingMode = 'legacy'
       }
       // Migrate: ensure exactly 4 expert slots
       while (parsed.experts.length < 4) {
@@ -843,7 +843,7 @@ const loadMultiAgentConfig = (): MultiAgentConfig | null => {
           name: `Expert_${idx}`,
           provider: 'official',
           model: '',
-          temperature: 0.7,
+          temperature: 1.0,
         })
       }
       return parsed
@@ -1465,7 +1465,7 @@ async function processChat(
 
     await getMultiAgentResponse({
       mode: multiAgentMode.value,
-      operatingMode: multiAgentConfig.value?.operatingMode ?? 'combined',
+      operatingMode: multiAgentConfig.value?.operatingMode ?? 'legacy',
       maxRounds: multiAgentConfig.value?.maxRounds ?? 3,
       useExpertMemory: true,
       experts,

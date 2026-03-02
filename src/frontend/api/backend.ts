@@ -837,7 +837,7 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
   const multiAgentBody: MultiAgentRequestBody = {
     messages: convertMessages(options.messages),
     mode: options.mode,
-    operating_mode: options.operatingMode ?? 'combined',
+    operating_mode: options.operatingMode ?? 'legacy',
     max_rounds: options.maxRounds ?? 3,
     use_expert_memory: options.useExpertMemory ?? true,
     experts: expertConfigs,

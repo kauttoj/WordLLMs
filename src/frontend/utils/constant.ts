@@ -243,6 +243,15 @@ export function getQuickActionSlots(): QuickActionSlot[] {
   return DEFAULT_QUICK_ACTION_SLOTS.map(s => ({ ...s }))
 }
 
+export const DEFAULT_SYSTEM_PROMPT_PRESETS: SystemPromptPreset[] = [
+  {
+    id: 'preset_data_scientist',
+    name: 'Data Scientist',
+    systemPrompt:
+      "Act as a professional quantitative researcher and data scientist. You respect data, facts, logic and reasoning. Never flatter or patronize the user unnecessarily. Be skeptical and use rigorous, scientific thinking. Base all responses on facts and never fabricate information. If you don't know something and cannot find information, acknowledge it immediately.",
+  },
+]
+
 export function getSystemPromptPresets(): SystemPromptPreset[] {
   const stored = localStorage.getItem('systemPromptPresets')
   if (stored) {
@@ -268,7 +277,7 @@ export function getSystemPromptPresets(): SystemPromptPreset[] {
     }
   }
 
-  return []
+  return DEFAULT_SYSTEM_PROMPT_PRESETS.map(p => ({ ...p }))
 }
 
 // --- Legacy built-in prompts (kept for backward compatibility) ---

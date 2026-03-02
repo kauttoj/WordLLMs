@@ -46,7 +46,7 @@ The application is powered by a **Python/FastAPI backend** using **LangChain** a
 
 ## Features
 
-### 7 AI Providers, All Latest Models
+### 7 AI Providers, All Latest Models (updated regularly)
 
 | Provider | Example Models | Notes |
 |----------|---------------|-------|
@@ -98,7 +98,7 @@ The agent (and multi-agent) modes can manipulate your Word document through Offi
 
 ### Quick Actions
 
-One-click operations on selected text via customizable toolbar buttons:
+One-click operations on selected text via customizable toolbar buttons, for example:
 
 - **Translate** — Using LLM capabilities
 - **Polish** — Professional writing improvement
@@ -106,7 +106,7 @@ One-click operations on selected text via customizable toolbar buttons:
 - **Summarize** — Concise summaries
 - **Grammar** — Proofread and correct
 - **3 custom slots** — Define your own actions with custom system/user prompts
-- **Custom role** — Define custom instructions to steer LLMs
+- **Custom role** — Define custom instructions to steer LLMs (added to system prompt)
 
 ### Conversation Management
 
@@ -117,13 +117,11 @@ One-click operations on selected text via customizable toolbar buttons:
 
 ### Customization
 
-- **System prompt presets** — Save and switch between multiple system prompts
+- **System prompt presets** — Save and switch between multiple system prompts (steer responses)
 - **Per-provider settings** — Temperature, max tokens, custom base URLs, API versions
 - **Custom models** — Add any model name for any provider
-- **Thinking block filtering** — Strip `<think>` tags from reasoning models (DeepSeek-R1, etc.)
-- **Agent iteration limit** — 1 to 100 steps (default 25)
-- **Configurable timeouts** — 5 to 900 seconds per LLM call
-- **Multilingual interface** — English and Simplified Chinese
+- **Agent iteration limit** — 1 to 500 steps (default 100)
+- **Configurable timeouts** — 5 to 900 seconds per LLM call (default 90s)
 
 ## Getting Started
 
@@ -151,9 +149,12 @@ You need an API key from at least one provider:
 
 ## Installation
 
+WordLLMs is essentiall a "mini" website inside Word, Word only presents ir. You need to serve this website outside Word.
 Choose the method that best suits your needs:
 
 ### Method 1: Docker Deployment (Recommended)
+
+0. **Install Docker desktop** https://www.docker.com/products/docker-desktop
 
 1. **Choose a folder on your PC** where WordLLMs will store your conversation history. For example: `C:\Users\YourName\WordLLMs`
 
@@ -177,8 +178,10 @@ Choose the method that best suits your needs:
    Click the folder icon to browse existing `.db` files, or type the path directly. This path always uses the `/app/data` form regardless of what Windows folder you chose — Docker translates it automatically.
 
 4. Download [manifest.xml](https://github.com/kauttoj/WordLLMs/blob/master/release/self-hosted/manifest.xml).
-5. Edit `manifest.xml`: Replace all instances of `localhost:3000` with your server's address and port (e.g., `localhost:8000`).
+5. [Optional for developers: Edit `manifest.xml`: Replace all instances of `localhost:3000` with your server's address and port (e.g., `localhost:8000`).]
 6. Proceed to the [Add-in Installation Guide](#add-in-installation-guide).
+
+> All processing happens in the container, it's the "brains" of the app. You need to run the Docker image (or Python app) each time you use WordLLMs. Your either do this via terminal OR Docker desktop client.
 
 ### Method 2: Build from Source
 
@@ -227,15 +230,18 @@ Full instructions from Microsoft: [Sideload Office Add-ins](https://learn.micros
 9. Select the **Show in Menu** check box, and then choose **OK**.
 ![image](https://learn.microsoft.com/en-us/office/dev/add-ins/images/sideload-windows-trust-center-dialog.png)
 10. Close and then restart Word.
-11. For older Word: Click **Insert** > **My Add-ins** > **Shared Folder**, choose **WordLLMs**, and then choose **Add**.
-    For current Word: Click **Home** > **Add-ins** > click **WordLLMs**
+11. For older Word: Click **Insert** > **My Add-ins** > **Shared Folder**, choose **WordLLMs**, and then choose **Add**.  
+    For current Word: Click **Home** > **Add-ins** > **Advanced** at bottom > click **WordLLMs**. See images.  
+![Image](https://github.com/kauttoj/WordLLMs/blob/master/public/addins_option_1.png)
+![Image](https://github.com/kauttoj/WordLLMs/blob/master/public/addins_option_2.png)
+![Image](https://github.com/kauttoj/WordLLMs/blob/master/public/addins_option_3.png)
 12. Enjoy!
 
 ## Usage
 
 ### Getting Started
 
-After opening WordLLMs, click the **Settings** button on the homepage to configure your preferred AI provider and API key.
+After opening WordLLMs, click the **Settings** button on the homepage to configure your preferred AI providers and API keys.
 
 ### Chat Mode
 
@@ -308,7 +314,7 @@ For each AI provider:
 │  ├───────────────────────────────────────┤  │
 │  │  LangChain Providers                  │  │
 │  │  OpenAI · Anthropic · Gemini · Azure  │  │
-│  │  Groq · Ollama · LM Studio           │  │
+│  │  Groq · Ollama · LM Studio            │  │
 │  ├───────────────────────────────────────┤  │
 │  │  Server Tools                         │  │
 │  │  Web search · URL fetch · Math · Date │  │

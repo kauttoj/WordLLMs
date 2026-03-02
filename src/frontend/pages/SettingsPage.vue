@@ -39,7 +39,7 @@
 
       <!-- Main Content -->
       <div class="w-full flex-1 overflow-hidden">
-        <div class="no-scrollbar h-full w-full overflow-auto rounded-md shadow-md">
+        <div class="h-full w-full overflow-auto rounded-md shadow-md">
           <!-- General Settings -->
           <div
             v-show="currentTab === 'general'"
@@ -653,7 +653,7 @@ const editingPreset = ref<SystemPromptPreset>({ id: '', name: '', systemPrompt: 
 // MultiAgent configuration state
 const multiAgentConfig = ref<MultiAgentConfig>({
   mode: 'parallel',
-  operatingMode: 'combined',
+  operatingMode: 'legacy',
   maxRounds: 3,
   experts: [
     {
@@ -661,28 +661,28 @@ const multiAgentConfig = ref<MultiAgentConfig>({
       name: 'Expert_1',
       provider: 'official',
       model: '',
-      temperature: 0.7,
+      temperature: 1.0,
     },
     {
       id: 'expert_2',
       name: 'Expert_2',
       provider: 'anthropic',
       model: '',
-      temperature: 0.7,
+      temperature: 1.0,
     },
     {
       id: 'expert_3',
       name: 'Expert_3',
       provider: 'official',
       model: '',
-      temperature: 0.7,
+      temperature: 1.0,
     },
     {
       id: 'expert_4',
       name: 'Expert_4',
       provider: 'official',
       model: '',
-      temperature: 0.7,
+      temperature: 1.0,
     },
   ],
   overseer: {
@@ -1001,7 +1001,7 @@ const loadMultiAgentConfig = () => {
       const parsed = JSON.parse(stored)
       // Migrate: ensure operatingMode exists
       if (!parsed.operatingMode) {
-        parsed.operatingMode = 'combined'
+        parsed.operatingMode = 'legacy'
       }
       // Migrate: ensure exactly 4 expert slots
       while (parsed.experts.length < 4) {
@@ -1011,7 +1011,7 @@ const loadMultiAgentConfig = () => {
           name: `Expert_${idx}`,
           provider: 'official',
           model: '',
-          temperature: 0.7,
+          temperature: 1.0,
         })
       }
       multiAgentConfig.value = parsed
