@@ -12,7 +12,10 @@
       "Bash(test -f /c/code/WordLLMs/src/backend/requirements.txt)",
       "Bash(git diff --no-pager HEAD -- \"*.ts\" \"*.py\" \"*.vue\" \"*.json\" \"*.yml\")",
       "Bash(xargs grep -l \"trim_to_fit\\\\|context\")",
-      "Bash(git remote get-url origin)"
+      "Bash(git remote get-url origin)",
+      "Bash(docker build -t kauttoj/wordllms .)",
+      "Bash(python -c \":*)",
+      "Bash(echo \"Check done: exit $?\")"
     ]
   }
 }

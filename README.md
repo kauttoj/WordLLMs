@@ -159,7 +159,7 @@ Choose the method that best suits your needs:
 
    ```bash
    docker pull kauttoj/wordllms
-   docker run -d -p 8000:8000 kauttoj/wordllms
+   docker run -p 3000:8000 kauttoj/wordllms
    ```
 
 2. Download [manifest.xml](https://github.com/kauttoj/WordLLMs/blob/master/release/self-hosted/manifest.xml).
