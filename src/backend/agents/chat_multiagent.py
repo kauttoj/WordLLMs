@@ -232,6 +232,9 @@ class MultiAgentState(TypedDict):
     current_expert_index: int  # Pointer to which expert is acting
     expert_memories: Dict[str, str]  # { "0": "memory...", "1": "..." } keys are str(index)
 
+    # Whether experts receive cross-turn conversation history
+    expert_full_history: bool
+
     # Internal routing flag
     next_node: str | None
 
@@ -532,8 +535,23 @@ def parallel_expert_node(state: MultiAgentState, config):
         expert_name, idx, total_experts, 1, False, "", "parallel", state["language"]
     )
 
-    # System Prompt + current user messages only (no cross-turn history)
-    messages = [SystemMessage(content=system_prompt)] + user_messages
+    # Inject public-only cross-turn history if enabled
+    if state.get("expert_full_history", False):
+        cross_turn_public = _get_collab_public_history(state.get("cross_turn_history", []))
+        print(f"[MultiAgent:ParallelExpert]   Cross-turn history: {len(cross_turn_public)} messages")
+        system_prompt += "\n\nConversation history from prior turns is included for context. The most recent user message is your current task."
+        sep = "\n\n" + "─" * 6 + "\n\n"
+        if (cross_turn_public and user_messages
+                and isinstance(cross_turn_public[-1], HumanMessage)
+                and isinstance(user_messages[0], HumanMessage)):
+            merged = HumanMessage(content=cross_turn_public[-1].content + sep + user_messages[0].content)
+            history = cross_turn_public[:-1] + [merged] + user_messages[1:]
+        else:
+            history = cross_turn_public + user_messages
+    else:
+        history = user_messages
+
+    messages = [SystemMessage(content=system_prompt)] + history
 
     # Trim to fit context window
     max_ctx = get_max_context_tokens(config, "expert", idx)
@@ -579,7 +597,23 @@ def parallel_tool_post_processing_node(state: MultiAgentState, config):
     # Experts are stateless across tasks: user messages + own tool chain only
     user_messages = [m for m in state["messages"] if isinstance(m, HumanMessage)]
     expert_tool_chain = _get_current_expert_tool_chain(state["messages"])
-    messages = [SystemMessage(content=system_prompt)] + user_messages + expert_tool_chain
+
+    # Inject public-only cross-turn history if enabled
+    if state.get("expert_full_history", False):
+        cross_turn_public = _get_collab_public_history(state.get("cross_turn_history", []))
+        system_prompt += "\n\nConversation history from prior turns is included for context. The most recent user message is your current task."
+        sep = "\n\n" + "─" * 6 + "\n\n"
+        if (cross_turn_public and user_messages
+                and isinstance(cross_turn_public[-1], HumanMessage)
+                and isinstance(user_messages[0], HumanMessage)):
+            merged = HumanMessage(content=cross_turn_public[-1].content + sep + user_messages[0].content)
+            history = cross_turn_public[:-1] + [merged] + user_messages[1:]
+        else:
+            history = cross_turn_public + user_messages
+    else:
+        history = user_messages
+
+    messages = [SystemMessage(content=system_prompt)] + history + expert_tool_chain
     print(f"[MultiAgent:ParallelPostProcess]   Message history: {_format_message_counts(messages)}")
 
     # Trim to fit context window
@@ -715,11 +749,28 @@ def collab_expert_node(state: MultiAgentState, config):
         legacy_mode=legacy_mode,
     )
 
-    # Experts are stateless across tasks: current task discussion + own tool chain only
+    # Current task discussion + own tool chain
     public_history = _get_collab_public_history(state["messages"])
     public_history = _adapt_collab_history_for_expert(public_history, expert_name)
     own_tool_chain = _get_current_expert_tool_chain(state["messages"])
-    messages = [SystemMessage(content=system_prompt)] + public_history + own_tool_chain
+
+    # Inject public-only cross-turn history if enabled
+    if state.get("expert_full_history", False):
+        cross_turn_public = _get_collab_public_history(state.get("cross_turn_history", []))
+        print(f"[MultiAgent:CollabExpert]   Cross-turn history: {len(cross_turn_public)} messages")
+        system_prompt += "\n\nConversation history from prior turns is included for context. The most recent user message is your current task."
+        sep = "\n\n" + "─" * 6 + "\n\n"
+        if (cross_turn_public and public_history
+                and isinstance(cross_turn_public[-1], HumanMessage)
+                and isinstance(public_history[0], HumanMessage)):
+            merged = HumanMessage(content=cross_turn_public[-1].content + sep + public_history[0].content)
+            history = cross_turn_public[:-1] + [merged] + public_history[1:]
+        else:
+            history = cross_turn_public + public_history
+    else:
+        history = public_history
+
+    messages = [SystemMessage(content=system_prompt)] + history + own_tool_chain
     print(f"[MultiAgent:CollabExpert]   Message history: {_format_message_counts(messages)}")
 
     # Trim to fit context window
@@ -1326,6 +1377,7 @@ async def stream_multiagent(
     llm_timeout: int = 60,
     legacy_mode: bool = False,
     formatter_model: BaseChatModel | None = None,
+    expert_full_history: bool = False,
 ) -> AsyncGenerator[dict[str, Any], None]:
 
     # Log model configuration at entry point
@@ -1398,6 +1450,7 @@ async def stream_multiagent(
         "parallel_responses": {},
         "current_expert_index": 0,
         "expert_memories": {},
+        "expert_full_history": expert_full_history,
         "next_node": None,
         "last_tool_caller": None
     }
@@ -1475,7 +1528,7 @@ async def stream_multiagent(
 
     except Exception as e:
         if use_store:
-            conversation_store.rollback_turn(conversation_id, turn)
+            conversation_store.rollback_response(conversation_id, turn)
             conversation_store.unregister_thread(thread_id)
         yield {"event": "error", "data": {"error": str(e)}}
         _session_config_cache.pop(thread_id, None)
@@ -1579,7 +1632,7 @@ async def resume_multiagent(
         if conversation_store:
             mapping = conversation_store.lookup_thread(multiagent_session_id)
             if mapping:
-                conversation_store.rollback_turn(mapping.conversation_id, mapping.turn)
+                conversation_store.rollback_response(mapping.conversation_id, mapping.turn)
                 conversation_store.unregister_thread(multiagent_session_id)
         yield {"event": "error", "data": {"error": str(e)}}
         _session_config_cache.pop(multiagent_session_id, None)

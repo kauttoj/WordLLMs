@@ -486,6 +486,30 @@ class ConversationStore:
         )
         self._conn.commit()
 
+    def rollback_response(self, conversation_id: str, turn: int) -> None:
+        """Remove non-user entries from a failed turn, preserving the user message.
+
+        Unlike rollback_turn(), this keeps the HumanMessage so the user's query
+        remains in LLM context for subsequent turns. The turn counter is NOT
+        decremented because the turn still exists (with a user message).
+        """
+        conv = self._conversations.get(conversation_id)
+        if conv:
+            conv.entries = [
+                e for e in conv.entries
+                if not (e.turn == turn and not isinstance(e.message, HumanMessage))
+            ]
+            conv.total_chars = sum(_count_msg_chars(e.message) for e in conv.entries)
+            conv.total_tokens = sum(_count_msg_tokens(e.message) for e in conv.entries)
+            self._db_upsert_conversation(conversation_id, conv)
+
+        assert self._conn is not None
+        self._conn.execute(
+            "DELETE FROM entries WHERE conversation_id = ? AND turn = ? AND persona != 'user'",
+            (conversation_id, turn),
+        )
+        self._conn.commit()
+
     # --- Edit / Truncate / Fork (edit / retry / fork support) ---
 
     def edit_user_message(self, conversation_id: str, turn: int, new_content: str) -> None:

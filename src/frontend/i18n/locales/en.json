@@ -120,6 +120,8 @@
   "multiAgent": "Multi-Agent",
   "multiagentAddExpert": "Add Expert",
   "multiagentCredentialsInfo": "Multi-agent will use the credentials configured in the API Provider settings for each selected provider.",
+  "multiagentExpertFullHistoryHelp": "When enabled, experts receive the conversation history from previous turns (user messages and assistant responses, no tool interactions). When disabled, experts only see the current task.",
+  "multiagentExpertFullHistoryLabel": "Allow expert full history",
   "multiagentExpertNameLabel": "Expert Name",
   "multiagentExpertsLabel": "Experts Configuration",
   "multiagentFormatterModelHelp": "A cheap/fast model used to extract structured output when experts don't follow the XML format. Only used in Legacy mode.",

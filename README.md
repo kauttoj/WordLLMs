@@ -149,7 +149,7 @@ You need an API key from at least one provider:
 
 ## Installation
 
-WordLLMs is essentially a "mini" website inside Word, Word only presents it. As results, you need to serve WordLLMs application outside Word. Choose the method that best suits your needs:
+WordLLMs is essentially a "mini" website inside Word, Word only presents it. As results, you need to serve WordLLMs application outside Word. Choose the method that best suits your needs below. An easier, executable version (Method 3) might be added later.
 
 ### Method 1: Docker Deployment (Recommended)
 
@@ -175,6 +175,15 @@ WordLLMs is essentially a "mini" website inside Word, Word only presents it. As 
    ```
 
    which restart the old container without creating a new one. You can also start the image from Docker Desktop by clicking the image. You can learn more at https://www.docker.com/blog/getting-started-with-docker-desktop
+
+   How to update new version? First stop (if not stopped) and remove the container:
+
+   ```
+   docker stop wordllms 
+   docker rm wordllms
+   ```
+   
+   Then repeat those same two pull and run commands.
 
    > **Why this matters**: Your conversation history is stored in a file on your PC. The `-v` flag is how Docker links your chosen Windows folder to the app running inside the container. Without it, all conversations are permanently lost every time the container stops. The app's file browser can only access folders that were linked this way at startup — you cannot change the folder later from inside the app.
 

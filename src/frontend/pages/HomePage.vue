@@ -205,7 +205,7 @@
               <textarea
                 v-if="entry.msg instanceof HumanMessage && editingMessageIndex === entry.displayIndex"
                 v-model="editText"
-                :ref="(el) => el instanceof HTMLTextAreaElement && nextTick(() => resizeEditTextarea(el))"
+                :ref="(el: any) => { editTextareaEl = el as HTMLTextAreaElement | null }"
                 class="w-full max-w-[95%] resize-none overflow-y-hidden rounded-md border border-accent/30 bg-bg-secondary p-1 text-sm text-main"
                 @keydown.ctrl.enter="submitEdit"
                 @input="(e) => resizeEditTextarea(e.target as HTMLTextAreaElement)"
@@ -721,6 +721,7 @@ const abortController = ref<AbortController | null>(null)
 const threadId = useStorage(localStorageKey.threadId, uuidv4())
 const editingMessageIndex = ref<number | null>(null)
 const editText = ref('')
+let editTextareaEl: HTMLTextAreaElement | null = null
 const showCheckpoints = ref(false)
 const saver = new IndexedDBSaver()
 const currentCheckpointId = ref<string>('')
@@ -1235,7 +1236,7 @@ async function sendMessage() {
     } else {
       console.error(error)
       messageUtil.error(t('failedToResponse'))
-      history.value.pop()
+      await cleanupFailedResponseAndSave()
     }
   } finally {
     loading.value = false
@@ -1453,6 +1454,7 @@ async function processChat(
       operatingMode: multiAgentConfig.value?.operatingMode ?? 'legacy',
       maxRounds: multiAgentConfig.value?.maxRounds ?? 3,
       useExpertMemory: true,
+      expertFullHistory: multiAgentConfig.value?.expertFullHistory ?? false,
       experts,
       overseer: overseerConfig,
       synthesizer: synthesizerConfig,
@@ -1615,6 +1617,7 @@ async function processChat(
       messageUtil.error(t('somethingWentWrong'))
     }
     errorIssue.value = null
+    await cleanupFailedResponseAndSave()
     return
   }
 
@@ -1671,15 +1674,28 @@ function truncateHistoryAndMaps(fromIndex: number) {
   }
 }
 
+/** Remove partial AI/tool responses after the last user message and persist thread. */
+async function cleanupFailedResponseAndSave() {
+  for (let i = history.value.length - 1; i >= 0; i--) {
+    if (history.value[i] instanceof HumanMessage) {
+      truncateHistoryAndMaps(i + 1)
+      break
+    }
+  }
+  await saveConversationToThread()
+}
+
 function resizeEditTextarea(el: HTMLTextAreaElement) {
   el.style.height = 'auto'
   el.style.height = el.scrollHeight + 'px'
 }
 
-function startEdit(index: number) {
+async function startEdit(index: number) {
   if (loading.value) return
   editingMessageIndex.value = index
   editText.value = getMessageText(history.value[index])
+  await nextTick()
+  if (editTextareaEl) resizeEditTextarea(editTextareaEl)
 }
 
 function cancelEdit() {
@@ -1787,7 +1803,7 @@ async function retryLastMessage() {
     } else {
       console.error(error)
       messageUtil.error(t('failedToResponse'))
-      history.value.pop()
+      await cleanupFailedResponseAndSave()
     }
   } finally {
     loading.value = false

@@ -325,6 +325,7 @@ async def multiagent_completion(request: MultiAgentRequest):
                 llm_timeout=request.llm_timeout,
                 legacy_mode=(request.operating_mode == "legacy"),
                 formatter_model=formatter_model,
+                expert_full_history=request.expert_full_history,
             ):
                 yield {"event": event["event"], "data": json.dumps(event["data"])}
 

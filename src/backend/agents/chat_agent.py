@@ -466,7 +466,7 @@ async def stream_chat(
     except Exception as e:
         print(f"[stream_chat] ERROR during streaming: {type(e).__name__}: {e}")
         if use_store:
-            conversation_store.rollback_turn(conversation_id, turn)
+            conversation_store.rollback_response(conversation_id, turn)
         import traceback
         traceback.print_exc()
         raise
@@ -707,7 +707,7 @@ async def stream_agent(
     except Exception as e:
         if use_store:
             assert conversation_id is not None and conversation_store is not None and turn is not None
-            conversation_store.rollback_turn(conversation_id, turn)
+            conversation_store.rollback_response(conversation_id, turn)
             conversation_store.unregister_thread(session_id)
         _emitted_ai_msg_id.pop(session_id, None)
         yield {"event": "error", "data": {"error": str(e)}}
@@ -822,7 +822,7 @@ async def resume_agent(
         if conversation_store:
             mapping = conversation_store.lookup_thread(session_id)
             if mapping:
-                conversation_store.rollback_turn(mapping.conversation_id, mapping.turn)
+                conversation_store.rollback_response(mapping.conversation_id, mapping.turn)
                 conversation_store.unregister_thread(session_id)
         _emitted_ai_msg_id.pop(session_id, None)
         yield {"event": "error", "data": {"error": str(e)}}

@@ -28,6 +28,15 @@
       />
     </SettingCard>
 
+    <!-- Expert Full History -->
+    <SettingCard>
+      <label class="flex items-center gap-2 text-sm">
+        <input v-model="config.expertFullHistory" type="checkbox" class="rounded" />
+        {{ t('multiagentExpertFullHistoryLabel') }}
+      </label>
+      <p class="mt-1 text-xs text-gray-500">{{ t('multiagentExpertFullHistoryHelp') }}</p>
+    </SettingCard>
+
     <!-- Experts Section -->
     <div class="mt-4 flex items-center justify-between">
       <h3 class="text-base font-semibold">{{ t('multiagentExpertsLabel') }}</h3>

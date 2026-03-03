@@ -143,6 +143,7 @@ export interface MultiAgentOptions extends BaseChatCompletionOptions {
   operatingMode?: 'combined' | 'legacy'
   maxRounds?: number
   useExpertMemory?: boolean
+  expertFullHistory?: boolean
   experts: MultiAgentExpertConfig[]
   overseer: MultiAgentExpertConfig
   synthesizer?: MultiAgentExpertConfig
@@ -162,6 +163,7 @@ export interface MultiAgentConfig {
   mode: 'parallel' | 'collaborative'
   operatingMode: 'combined' | 'legacy'
   maxRounds: number
+  expertFullHistory?: boolean
   experts: {
     id: string
     name: string
