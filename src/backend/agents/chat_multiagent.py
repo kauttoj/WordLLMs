@@ -200,7 +200,7 @@ class ExpertOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     public_response: str = Field(description="Response to share with the user, other experts and Overseer.")
-    private_memory: str = Field(description="Private notes/memory for your next turn. Keep it brief.")
+    private_memory: str = Field(description="Analytical scratchpad: independent doubts, hypotheses, or alternative approaches to recall next round.")
 
 class OverseerDecision(BaseModel):
     """Structured output for the overseer's decision."""
@@ -822,7 +822,7 @@ def collab_expert_node(state: MultiAgentState, config):
             format_messages = [HumanMessage(content=(
                 f"Extract the public response and private memory from the text below.\n"
                 f"- public_response: The expert's analysis and recommendations (visible to others)\n"
-                f"- private_memory: Private notes for the expert's next round (not shared)\n\n"
+                f"- private_memory: Analytical scratchpad — independent doubts, hypotheses, or alternative approaches (not shared)\n\n"
                 f"---\n\n"
                 f"{content_text}\n"
             ))]

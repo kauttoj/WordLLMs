@@ -206,10 +206,6 @@ Communicate and provide results in {language}."""
     else:  # collaborative
         expert_list = ', '.join(f'Expert_{i+1}' for i in range(total_experts))
 
-        collab_output = """In your response, provide:
-- Proposed Changes: Detailed recommendations. Favor surgical, diff-style suggestions (e.g., bullet list of replacements/insertions/deletions with quoted snippets). Provide full, rewritten text section only if diffs are impractical.
-- Key Points: Your recommendations"""
-
         base_prompt = f"""You are an AI assistant {expert_name} in a collaborative expert panel ({expert_list}) managed by the Overseer AI. 
 
 # Your Role
@@ -226,33 +222,46 @@ You can read the document but CANNOT edit it. The Overseer makes final decisions
 """
 
         if round_num == 1:
+
+            collab_output = """Structure your public response:
+            - **Assessment**: Briefly state the core issue and user needs.
+            - **Proposed Changes**: Favor surgical, diff-style suggestions (e.g., bullet list of replacements/insertions/deletions with quoted snippets). Provide full rewrites only if diffs are impractical.
+            - **Reasoning**: State why this approach is optimal."""
+
             prompt = base_prompt + f"""
 
 ## Round 1 Instructions
 1. If the task involves the document in any way, you MUST read it before responding. NEVER ask the user to provide text -- use your tools. Only skip if the task is purely a general knowledge question unrelated to the document.
 2. Provide your OWN initial analysis and recommendations based on your reading.
 3. Be specific -- quote relevant document content so others can follow your reasoning.
-4. If a previous expert already covered a point you agree with, briefly acknowledge it and move on. Do NOT restate or repeat their analysis. Focus on what you can ADD: new angles, missed details, or disagreements.
-5. If you fully agree with all previous analysis and have nothing to add, express that clearly and don't repeat previous responses.
+4. Do NOT waste time validating or restating what previous experts have said. Your sole function is to add value by providing new angles, missing details, alternative interpretations, or spotting errors in prior analysis.
+5. If you fully agree with all previous analysis and genuinely have zero new value to add, state this in a single sentence and stop.
 
 {collab_output}
 """
         else:
+
+            collab_output = """Structure your public response:
+            - **Critique & Delta**: Do NOT restate the basic task. Explicitly state what previous experts missed, where their logic is flawed, or what edge cases remain unaddressed. If you agree entirely, state what specific nuances you are adding.
+            - **Proposed Adjustments**: Provide your new or modified diff-style suggestions (e.g., bullet list of replacements/insertions/deletions with quoted snippets).
+            - **Reasoning**: Justify why your divergence or addition is necessary."""
+
             prompt = base_prompt + f"""
 
 ## Round {round_num} Instructions
 
 ## Rules
-- DO NOT mechinistically repeat, copy, or paraphrase what other experts already said without any own genuine input.
+- DO NOT mechanistically repeat, copy, or paraphrase what other experts already said.
+- You are penalized for uncritical agreement. Act as an independent auditor.
 
 ## Steps
-1. Review what other experts have said. Identify agreements, disagreements, and gaps.
+1. Review prior expert responses. Identify unverified assumptions, potential flaws, or missing edge cases.
 2. If you need to verify a claim or check document content, re-read it. Do not take claims at face value. NEVER ask the user to provide text -- use your tools.
 3. Provide ONLY your unique contribution:
-   - Disagreements: state clearly with reasoning and document quotes.
-   - New insights not yet raised: present with supporting evidence.
-   - Full agreement with nothing to add: state so shortly (e.g., "I agree with Expert_1's analysis. No additional points."). Do NOT rewrite same content analysis.
-4. Be concise. Your value is in new perspective and insight, not restating already known information.
+   - Disagreements/Corrections: state clearly with rigorous reasoning and exact document quotes.
+   - New insights/Optimizations: present with supporting evidence.
+   - If the previous analysis is mathematically or logically flawless, state "I agree with the panel. No additional points." Do NOT rewrite the same content.
+4. Be concise. Your value is in finding flaws and adding new perspective.
 
 {collab_output}
 """
@@ -261,7 +270,7 @@ You can read the document but CANNOT edit it. The Overseer makes final decisions
 
     # Only inject memory in round 2+ (round 1 has no previous memory)
     if round_num > 1 and memory_content:
-        prompt += f"Your personal notes from the previous round:\n<my_memory>\n{memory_content}\n</my_memory>\n\n"
+        prompt += f"Your private analytical notes from the previous round:\n<my_memory>\n{memory_content}\n</my_memory>\nReview these notes. Do not abandon your previous independent logic simply because other experts disagree. Use this to maintain your analytical rigor.\n\n"
 
     # Instruct expert on final output format
     if legacy_mode and mode == "collaborative":
@@ -274,16 +283,15 @@ After completing your work, give your final response using EXACTLY this XML tag 
 Your response with analysis and recommendations visible to others.
 </public>
 <private>
-Your short private notes for yourself to recall in the next round, if needed. Not shared with others.
+This is your analytical scratchpad. Use this space to explicitly log your independent doubts, hypotheses, or alternative approaches BEFORE you finalize your public response. Not shared with others.
 </private>
 
 """
     else:
         prompt += """# Response format
-After using tools to gather information and completing your analysis, give your final response.
+After using tools to gather information and completing your analysis, produce your final response.
 
-When you have gathered all necessary information and are ready to submit your analysis, produce your final response.
-with public content (for other to see) and private notes to yourself to recall in the next rounds.
+Your final response must include your public content (visible to others) and your private notes. Treat the private notes as an analytical scratchpad to explicitly log your independent doubts, hypotheses, or alternative approaches to recall in the next round.
 """
 
     return prompt
@@ -389,14 +397,13 @@ Evaluate whether the expert discussion has produced sufficient quality for a fin
 # Evaluation Criteria
 1. **Completeness**: Have experts addressed all aspects of the user's request?
 2. **Accuracy**: Are expert claims about document content correct? (Read the document to verify if uncertain.)
-3. **Consensus vs. Conflict**: Are there unresolved contradictions that need another round?
+3. **Critical Rigor**: Did the experts actually challenge each other, explore edge cases, or look for alternative interpretations?
 4. **Actionability**: Are recommendations specific and complete enough to be applied and take action?
 
-"""
-
-    prompt += """# Decision
+# Decision
+- If the task is highly complex and the experts reached immediate consensus without exploring alternatives or potential flaws, this is superficial agreement. Respond with **CONTINUE:** and explicitly instruct the next expert to act as a Devil's Advocate to stress-test the solution.
 - If significant gaps or unresolved contradictions remain: respond with **CONTINUE:** followed by specific expert guidance for the next round.
-- If the discussion is sufficient: respond with **CONCLUDE** followed by rationale why we should conclude.
+- If the task is straightforward, or if the discussion is rigorous, complete, and sufficient: respond with **CONCLUDE** followed by rationale why we should conclude.
 
 Provide your evaluation and decision. Communicate your evaluation in {language}."""
 
