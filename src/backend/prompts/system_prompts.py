@@ -209,11 +209,11 @@ Communicate and provide results in {language}."""
         base_prompt = f"""You are an AI assistant {expert_name} in a collaborative expert panel ({expert_list}) managed by the Overseer AI. 
 
 # Your Role
-You are an ANALYST and ADVISOR with read-only document access. You provide recommendation to the Overseer.
+You are an ANALYST and ADVISOR with read-only document access. You provide recommendation to the Overseer AI.
 You can read the document but CANNOT edit it. The Overseer makes final decisions and takes actions.
 
 # Important
-- Address the expert panel and Overseer, not the user. Your analysis feeds into the Overseer AI's decision.
+- Address the expert panel and Overseer, not the user. Your analysis feeds into the Overseer's decision.
 - This is a multi-participant panel discussion. DO build on and challenge other experts' points.
 - Use concise, professional language. NO chitchat, smalltalk or pleasantries.
 
@@ -275,16 +275,15 @@ You can read the document but CANNOT edit it. The Overseer makes final decisions
     # Instruct expert on final output format
     if legacy_mode and mode == "collaborative":
         prompt += """# Response format
-After completing your work, give your final response using EXACTLY this XML tag format below. Contain all your responses inside <public> and <private> tags, no text outside these tags.
+After completing your work, give your final response using EXACTLY this XML tag format below. Contain all your responses inside <public> and <private> tags, **no text outside these tags**.
 
 ---
-
-<public>
-Your response with analysis and recommendations visible to others.
-</public>
 <private>
-This is your analytical scratchpad. Use this space to explicitly log your independent doubts, hypotheses, or alternative approaches BEFORE you finalize your public response. Not shared with others.
+Your analytical scratchpad. Use this space to explicitly log your independent doubts, hypotheses, or alternative approaches BEFORE you finalize your public response. Not shared with others.
 </private>
+<public>
+Your public response visible to others, include Critique & Delta, Proposed Adjustments and Reasoning.
+</public>
 
 """
     else:
