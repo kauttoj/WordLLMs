@@ -22,13 +22,7 @@
       "type": "debugpy",
       "request": "launch",
       "module": "uvicorn",
-      "args": [
-        "backend.main:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "3000"
-      ],
+      "args": ["src.backend.main:app", "--host", "0.0.0.0", "--port", "3000"],
       "jinja": true,
       "justMyCode": false,
       "cwd": "${workspaceFolder}",
@@ -42,14 +36,7 @@
       "type": "debugpy",
       "request": "launch",
       "module": "uvicorn",
-      "args": [
-        "backend.main:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "3000",
-        "--reload"
-      ],
+      "args": ["src.backend.main:app", "--host", "0.0.0.0", "--port", "3000", "--reload"],
       "jinja": true,
       "justMyCode": false,
       "cwd": "${workspaceFolder}",

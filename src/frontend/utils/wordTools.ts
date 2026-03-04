@@ -93,7 +93,7 @@ function parseOoxml(ooxml: string): ParsedDocument {
       if (child.nodeType !== 1) continue
       const ln = (child as Element).localName
 
-      if (ln === 'del') {
+      if (ln === 'del' || ln === 'comment') {
         pendingBreak = true
         continue
       }
