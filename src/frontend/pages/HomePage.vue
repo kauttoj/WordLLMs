@@ -1474,45 +1474,42 @@ async function processChat(
       attachments,
       attachmentCharLimit: settings.attachmentCharLimit,
       onStream: (text: string, speaker?: string) => {
+        if (!speaker) throw new Error('[MultiAgent] BUG: Received stream event without speaker identity')
         console.error('[MultiAgent] Unexpected text event - multiagent should only emit message events')
         const newMsg = new AIMessage(text)
         history.value.push(newMsg)
         currentBotMessageIndex.value = history.value.length - 1
-        if (speaker) {
-          const botType = speaker === 'Synthesizer' ? 'synthesizer' : speaker === 'Overseer' ? 'overseer' : 'expert'
-          const emoji = botType === 'synthesizer' ? '🔮' : botType === 'overseer' ? '🎯' : '👤'
-          messageMetadata.set(currentBotMessageIndex.value, { botType, botName: speaker, emoji })
-        }
+        const botType = speaker === 'Synthesizer' ? 'synthesizer' : speaker === 'Overseer' ? 'overseer' : 'expert'
+        const emoji = botType === 'synthesizer' ? '🔮' : botType === 'overseer' ? '🎯' : '👤'
+        messageMetadata.set(currentBotMessageIndex.value, { botType, botName: speaker, emoji })
         scrollToBottom()
       },
       onMessage: (content: string, speaker?: string, round?: number) => {
+        if (!speaker) throw new Error('[MultiAgent] BUG: Received message without speaker identity')
         const newMsg = new AIMessage(content)
         history.value.push(newMsg)
         currentBotMessageIndex.value = history.value.length - 1
-        if (speaker) {
-          const botType = speaker === 'Synthesizer' ? 'synthesizer' : speaker === 'Overseer' ? 'overseer' : 'expert'
-          const emoji = botType === 'synthesizer' ? '🔮' : botType === 'overseer' ? '🎯' : '👤'
-          messageMetadata.set(currentBotMessageIndex.value, {
-            botType,
-            botName: speaker,
-            emoji,
-            roundNumber: round,
-          })
-        }
+        const botType = speaker === 'Synthesizer' ? 'synthesizer' : speaker === 'Overseer' ? 'overseer' : 'expert'
+        const emoji = botType === 'synthesizer' ? '🔮' : botType === 'overseer' ? '🎯' : '👤'
+        messageMetadata.set(currentBotMessageIndex.value, {
+          botType,
+          botName: speaker,
+          emoji,
+          roundNumber: round,
+        })
         liveCharsDelta.value += content.length
         scrollToBottom()
       },
       onToolCall: (toolName: string, _args: any, speaker?: string) => {
+        if (!speaker) throw new Error('[MultiAgent] BUG: Received tool_call without speaker identity')
         const msg = new ToolCallMessage(toolName)
         history.value.push(msg)
-        if (speaker) {
-          const botType = speaker === 'Synthesizer' ? 'synthesizer' : speaker === 'Overseer' ? 'overseer' : 'expert'
-          messageMetadata.set(history.value.length - 1, {
-            botType,
-            botName: speaker,
-            emoji: botType === 'synthesizer' ? '🔮' : botType === 'overseer' ? '🎯' : '👤',
-          })
-        }
+        const botType = speaker === 'Synthesizer' ? 'synthesizer' : speaker === 'Overseer' ? 'overseer' : 'expert'
+        messageMetadata.set(history.value.length - 1, {
+          botType,
+          botName: speaker,
+          emoji: botType === 'synthesizer' ? '🔮' : botType === 'overseer' ? '🎯' : '👤',
+        })
         liveCharsDelta.value += toolName.length + 20
         scrollToBottom()
       },
@@ -1984,17 +1981,18 @@ const getBotStyles = (botType: string, botName?: string) => {
     return expertColors[colorIndex]
   }
 
-  // Supervisor colors (overseer and synthesizer use same styling)
-  const supervisorStyle = {
-    header: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20',
-    bubble: 'border-purple-500/30 bg-purple-500/5',
+  // Consigliere styling: overseer, synthesizer, and fallback all use neutral grey
+  // (only experts get distinct colors — consigliere is one persistent persona)
+  const consigliereStyle = {
+    header: 'bg-secondary/50 text-secondary border border-border-secondary',
+    bubble: 'border-border-secondary',
   }
 
   if (botType === 'overseer' || botType === 'synthesizer') {
-    return supervisorStyle
+    return consigliereStyle
   }
 
-  return { header: '', bubble: 'border-border-secondary' }
+  return consigliereStyle
 }
 
 const addWatch = () => {

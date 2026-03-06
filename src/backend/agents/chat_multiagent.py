@@ -1222,10 +1222,22 @@ async def _process_multiagent_stream(event_stream, valid_tool_names: set[str] | 
             input_data = event["data"].get("input")
 
             if node == "parallel_expert":
-                expert_idx = input_data.get("current_expert_index", 0)
+                expert_idx = input_data.get("current_expert_index", 0) if isinstance(input_data, dict) else 0
                 current_speaker = f"Expert_{expert_idx + 1}"
             elif node == "parallel_post_process":
-                pass  # Keep same speaker (expert is still responding)
+                if isinstance(input_data, dict):
+                    expert_idx = input_data.get("current_expert_index", 0)
+                    current_speaker = f"Expert_{expert_idx + 1}"
+            elif node == "tools":
+                if isinstance(input_data, dict):
+                    caller = input_data.get("last_tool_caller", "expert")
+                    if caller == "expert":
+                        expert_idx = input_data.get("current_expert_index", 0)
+                        current_speaker = f"Expert_{expert_idx + 1}"
+                    elif caller == "synthesizer":
+                        current_speaker = "Synthesizer"
+                    elif caller == "overseer":
+                        current_speaker = "Overseer"
             elif node == "synthesizer":
                 current_speaker = "Synthesizer"
             elif node == "collab_expert":
@@ -1242,6 +1254,8 @@ async def _process_multiagent_stream(event_stream, valid_tool_names: set[str] | 
             if valid_tool_names is not None and tool_name not in valid_tool_names:
                 print(f"[MultiAgentStream] SKIP unknown tool_call: {tool_name}")
                 continue
+            if not current_speaker:
+                raise ValueError(f"[MultiAgentStream] BUG: Emitting tool_call with speaker=None (tool={tool_name}). Every multiagent event must have a valid speaker.")
             yield {"event": "tool_call", "data": {"name": tool_name, "args": event.get("data", {}).get("input"), "speaker": current_speaker}}
 
         elif event["event"] == "on_chain_end":
@@ -1266,6 +1280,8 @@ async def _process_multiagent_stream(event_stream, valid_tool_names: set[str] | 
                     # Has tool calls — emit pre-tool text if any (e.g. "Let me search...")
                     content = extract_text_from_content(msgs[0].content)
                     if content:
+                        if not current_speaker:
+                            raise ValueError(f"[MultiAgentStream] BUG: Emitting message with speaker=None (node=parallel_expert). Every multiagent event must have a valid speaker.")
                         yield {"event": "message", "data": {"content": content, "speaker": current_speaker}}
 
             elif node == "parallel_post_process":
@@ -1279,6 +1295,8 @@ async def _process_multiagent_stream(event_stream, valid_tool_names: set[str] | 
                     # Has tool calls — emit pre-tool text if any
                     content = extract_text_from_content(msgs[0].content)
                     if content:
+                        if not current_speaker:
+                            raise ValueError(f"[MultiAgentStream] BUG: Emitting message with speaker=None (node=parallel_post_process). Every multiagent event must have a valid speaker.")
                         yield {"event": "message", "data": {"content": content, "speaker": current_speaker}}
 
             elif node == "collab_expert":
