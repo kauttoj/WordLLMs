@@ -5,7 +5,6 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 
 # Support running from both project root and backend directory
@@ -463,14 +462,16 @@ async def browse_directory(path: str = ""):
 
 # Serve static files
 if DIST_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
     _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
-    
+
     @app.get("/{path:path}")
     async def serve_static(path: str):
         file_path = DIST_DIR / path
         if file_path.exists() and file_path.is_file():
-            return FileResponse(file_path)
+            return FileResponse(file_path, headers=_NO_CACHE)
+        # Only serve index.html for SPA navigation routes, not missing asset files
+        if "." in path.split("/")[-1]:
+            raise HTTPException(status_code=404, detail=f"Not found: {path}")
         return FileResponse(DIST_DIR / "index.html", headers=_NO_CACHE)
 
     @app.get("/")

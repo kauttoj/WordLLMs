@@ -54,7 +54,7 @@ def create_model(
     provider: Literal["openai", "azure", "gemini", "groq", "ollama", "lmstudio", "anthropic"],
     model: str,
     credentials: dict[str, Any],
-    temperature: float = 0.7,
+    temperature: float = 1.0,
     timeout: int | None = None,
     max_retries: int = 0,
 ) -> BaseChatModel:

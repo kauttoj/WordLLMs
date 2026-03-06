@@ -14,6 +14,7 @@
         v-bind="$attrs"
         class="box-border w-full rounded-md border border-border bg-bg-tertiary p-2 pr-10 text-sm text-main transition-all duration-200 ease-apple focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         :placeholder="placeholder"
+        @change="clampIfNumeric"
       />
       <button
         v-if="isPassword"
@@ -31,7 +32,9 @@
 
 <script setup lang="ts">
 import { EyeClosedIcon, EyeIcon } from 'lucide-vue-next'
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, useAttrs } from 'vue'
+
+const attrs = useAttrs()
 
 const [modelValue, modifiers] = defineModel<any>({
   set(value) {
@@ -46,6 +49,14 @@ const [modelValue, modifiers] = defineModel<any>({
     return result
   },
 })
+
+function clampIfNumeric() {
+  if (typeof modelValue.value !== 'number') return
+  const min = attrs.min != null ? Number(attrs.min) : null
+  const max = attrs.max != null ? Number(attrs.max) : null
+  if (min != null && modelValue.value < min) modelValue.value = min
+  if (max != null && modelValue.value > max) modelValue.value = max
+}
 
 const type = ref('text')
 

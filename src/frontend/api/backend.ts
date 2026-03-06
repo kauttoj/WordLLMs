@@ -412,7 +412,7 @@ export async function streamChatFromBackend(options: ProviderOptions, language?:
     provider: mapProvider(options.provider),
     model: getModelName(options),
     credentials: buildCredentials(options),
-    temperature: options.temperature ?? 0.7,
+    temperature: options.temperature ?? 1.0,
     max_context_tokens: options.maxContextTokens ?? 128000,
     llm_timeout: options.llmTimeout ?? 60,
     filter_thinking: 'lmstudioFilterThinking' in options ? (options.lmstudioFilterThinking ?? true) : false,
@@ -525,7 +525,7 @@ export async function streamAgentFromBackend(options: AgentOptions, language?: s
     provider: mapProvider(options.provider),
     model: getModelName(options),
     credentials: buildCredentials(options),
-    temperature: options.temperature ?? 0.7,
+    temperature: options.temperature ?? 1.0,
     max_context_tokens: options.maxContextTokens ?? 128000,
     llm_timeout: options.llmTimeout ?? 60,
     filter_thinking: options.lmstudioFilterThinking ?? false,
@@ -726,7 +726,7 @@ function buildExpertConfig(expert: MultiAgentExpertConfig): any {
     provider: mapProvider(expert.provider),
     model,
     credentials: creds,
-    temperature: expert.temperature ?? 0.7,
+    temperature: expert.temperature ?? 1.0,
     max_context_tokens: expert.maxContextTokens ?? 128000,
   }
 }

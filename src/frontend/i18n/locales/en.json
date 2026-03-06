@@ -124,6 +124,7 @@
   "multiagentExpertFullHistoryLabel": "Allow expert full history",
   "multiagentExpertNameLabel": "Expert Name",
   "multiagentExpertsLabel": "Experts Configuration",
+  "multiagentExpertsOrderHelp": "We recommend setting the smartest Expert first.",
   "multiagentFormatterModelHelp": "A cheap/fast model used to extract structured output when experts don't follow the XML format. Only used in Legacy mode.",
   "multiagentFormatterModelLabel": "Formatter Model (Legacy fallback)",
   "multiagentMaxRoundsLabel": "Max Rounds",

@@ -54,7 +54,15 @@ export const availableAPIs: IStringKeyMap = {
 }
 
 // official API 可用的模型
-export const availableModels: string[] = ['gpt-5.2-pro', 'gpt-5.2', 'gpt-5.1', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4.1']
+export const availableModels: string[] = [
+  'gpt-5.4',
+  'gpt-5.2-pro',
+  'gpt-5.2',
+  'gpt-5.1',
+  'gpt-5-mini',
+  'gpt-5-nano',
+  'gpt-4.1',
+]
 
 // Gemini API 可用的模型
 export const availableModelsForGemini: string[] = [
@@ -249,6 +257,18 @@ export const DEFAULT_SYSTEM_PROMPT_PRESETS: SystemPromptPreset[] = [
     name: 'Data Scientist',
     systemPrompt:
       "Act as a professional quantitative researcher and data scientist. You respect data, facts, logic and reasoning. Never flatter or patronize the user unnecessarily. Be skeptical and use rigorous, scientific thinking. Base all responses on facts and never fabricate information. If you don't know something and cannot find information, acknowledge it immediately.",
+  },
+  {
+    id: 'preset_academic_writer',
+    name: 'Academic Writer',
+    systemPrompt:
+      'Act as an experienced academic writer. Use formal, precise language appropriate for scholarly publications. Structure arguments logically with clear thesis statements and supporting evidence. Cite claims carefully and distinguish between established facts and interpretations. Maintain objectivity and acknowledge limitations or alternative viewpoints.',
+  },
+  {
+    id: 'preset_marketing_assistant',
+    name: 'Marketing Assistant',
+    systemPrompt:
+      'Act as a skilled marketing professional. Focus on clear, persuasive communication tailored to the target audience. Prioritize measurable outcomes and data-driven strategies. Write compelling copy that balances creativity with brand consistency. Be direct about trade-offs between reach, engagement, and conversion.',
   },
 ]
 

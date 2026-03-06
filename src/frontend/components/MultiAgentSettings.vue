@@ -41,6 +41,7 @@
     <div class="mt-4 flex items-center justify-between">
       <h3 class="text-base font-semibold">{{ t('multiagentExpertsLabel') }}</h3>
     </div>
+    <p class="mt-1 text-xs text-secondary/70">{{ t('multiagentExpertsOrderHelp') }}</p>
 
     <SettingCard v-for="expert in config.experts" :key="expert.id">
       <h4 class="mb-3 text-sm font-semibold">{{ expert.name }}</h4>

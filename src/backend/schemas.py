@@ -113,7 +113,7 @@ class AgentRequest(BaseModel):
     tools: list[str] = Field(default_factory=list)
     thread_id: str | None = None
     conversation_id: str | None = None  # Enables unified cross-mode conversation history
-    recursion_limit: int = Field(default=50, ge=1, le=100)
+    recursion_limit: int = Field(default=50, ge=1, le=500)
     temperature: float = Field(default=1.0, ge=0, le=2)
     max_context_tokens: int = Field(default=128000, ge=1)
     llm_timeout: int = Field(default=60, ge=5, le=900)  # Seconds per LLM API call
@@ -141,7 +141,7 @@ class AgentContinueRequest(BaseModel):
     max_context_tokens: int = Field(default=128000, ge=1)
     llm_timeout: int = Field(default=60, ge=5, le=900)  # Seconds per LLM API call
     filter_thinking: bool = Field(default=True)
-    recursion_limit: int = Field(default=50, ge=1, le=100)
+    recursion_limit: int = Field(default=50, ge=1, le=500)
     tavily_api_key: str | None = None
     tools: list[str] = Field(default_factory=list)
 
@@ -182,7 +182,7 @@ class MultiAgentRequest(BaseModel):
     expert_tools: list[str] = Field(default_factory=list)
     supervisor_tools: list[str] = Field(default_factory=list)
 
-    recursion_limit: int = Field(default=25, ge=1, le=100)
+    recursion_limit: int = Field(default=25, ge=1, le=500)
     llm_timeout: int = Field(default=60, ge=5, le=900)  # Seconds per LLM API call
     filter_thinking: bool = Field(default=True)
     language: str | None = None  # If provided, used for system prompt language

@@ -690,7 +690,7 @@ const multiAgentConfig = ref<MultiAgentConfig>({
     name: 'Overseer',
     provider: 'anthropic',
     model: '',
-    temperature: 0.7,
+    temperature: 1.0,
   },
 })
 

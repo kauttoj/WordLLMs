@@ -194,7 +194,7 @@ You are an ANALYST and ADVISOR for the Synthesizer AI. Analyze the task and prov
 1. If the task could relate to the document in ANY way, read it BEFORE responding. NEVER ask the user to provide or paste text -- use your tools.
 2. Analyze the user's request thoroughly.
 3. Provide specific, actionable recommendations to the Synthesizer with clear reasoning.
-4. Use tools efficiently -- read the document once, then provide your analysis.
+4. Use tools efficiently -- read the document or part of it, unless task is purely a general knowledge question unrelated to the document. NEVER ask the user to provide text.
 
 Structure your response:
 - **Assessment**: What is the task/issue and what user needs.
@@ -231,7 +231,7 @@ You can read the document but CANNOT edit it. The Overseer makes final decisions
             prompt = base_prompt + f"""
 
 ## Round 1 Instructions
-1. If the task involves the document in any way, you MUST read it before responding. NEVER ask the user to provide text -- use your tools. Only skip if the task is purely a general knowledge question unrelated to the document.
+1. If the task involves the document in any way, read it fully or partially before responding. NEVER ask the user to provide text -- use your tools. Only skip if the task is purely a general knowledge question unrelated to the document.
 2. Provide your OWN initial analysis and recommendations based on your reading.
 3. Be specific -- quote relevant document content so others can follow your reasoning.
 4. Do NOT waste time validating or restating what previous experts have said. Your sole function is to add value by providing new angles, missing details, alternative interpretations, or spotting errors in prior analysis.
@@ -266,15 +266,16 @@ You can read the document but CANNOT edit it. The Overseer makes final decisions
 {collab_output}
 """
 
-    prompt += "\n\n# Memory System\n"
+    if mode == "collaborative":
+        prompt += "\n\n# Memory System\n"
 
-    # Only inject memory in round 2+ (round 1 has no previous memory)
-    if round_num > 1 and memory_content:
-        prompt += f"Your private analytical notes from the previous round:\n<my_memory>\n{memory_content}\n</my_memory>\nReview these notes. Do not abandon your previous independent logic simply because other experts disagree. Use this to maintain your analytical rigor.\n\n"
+        # Only inject memory in round 2+ (round 1 has no previous memory)
+        if round_num > 1 and memory_content:
+            prompt += f"Your private analytical notes from the previous round:\n<my_memory>\n{memory_content}\n</my_memory>\nReview these notes. Do not abandon your previous independent logic simply because other experts disagree. Use this to maintain your analytical rigor.\n\n"
 
-    # Instruct expert on final output format
-    if legacy_mode and mode == "collaborative":
-        prompt += """# Response format
+        # Instruct expert on final output format
+        if legacy_mode:
+            prompt += """# Response format
 After completing your work, give your final response using EXACTLY this XML tag format below. Contain all your responses inside <public> and <private> tags, **no text outside these tags**.
 
 ---
@@ -286,8 +287,8 @@ Your public response visible to others, include Critique & Delta, Proposed Adjus
 </public>
 
 """
-    else:
-        prompt += """# Response format
+        else:
+            prompt += """# Response format
 After using tools to gather information and completing your analysis, produce your final response.
 
 Your final response must include your public content (visible to others) and your private notes. Treat the private notes as an analytical scratchpad to explicitly log your independent doubts, hypotheses, or alternative approaches to recall in the next round.

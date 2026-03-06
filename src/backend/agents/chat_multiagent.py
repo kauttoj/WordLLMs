@@ -43,6 +43,9 @@ except ImportError:
     )
     from schemas import to_langchain_messages
 
+# Max retries when an expert LLM returns empty content (transient provider quirk)
+MAX_EMPTY_RETRIES = 2
+
 def _parse_expert_tags(text: str) -> "ExpertOutput | None":
     """Try to parse <public>...</public> and <private>...</private> tags from text.
 
@@ -784,23 +787,30 @@ def collab_expert_node(state: MultiAgentState, config):
             bound_model = model.bind_tools(tools, strict=_needs_strict(model))
         else:
             bound_model = model
-        response = invoke_with_timeout(bound_model, messages, get_llm_timeout(config), label=expert_name)
-        print(f"[MultiAgent:CollabExpert]   Stop reason: {_get_stop_reason(response)}")
-        response.name = expert_name
+        for empty_attempt in range(MAX_EMPTY_RETRIES + 1):
+            response = invoke_with_timeout(bound_model, messages, get_llm_timeout(config), label=expert_name)
+            print(f"[MultiAgent:CollabExpert]   Stop reason: {_get_stop_reason(response)}")
+            response.name = expert_name
 
-        if response.tool_calls:
-            print(f"[MultiAgent:CollabExpert]   Response has {len(response.tool_calls)} tool call(s): {[tc['name'] for tc in response.tool_calls]}")
-            return {
-                "messages": [response],
-                "last_tool_caller": "expert"
-            }
+            if response.tool_calls:
+                print(f"[MultiAgent:CollabExpert]   Response has {len(response.tool_calls)} tool call(s): {[tc['name'] for tc in response.tool_calls]}")
+                return {
+                    "messages": [response],
+                    "last_tool_caller": "expert"
+                }
 
-        # Free text: try inline tag parsing, then formatter fallback
-        content_text = extract_text_from_content(response.content)
-        print(f"[MultiAgent:CollabExpert]   Free text response (legacy): {content_text[:200]}...")
-        if not content_text:
-            _dump_empty_content_debug(messages, response, model, tools, expert_name)
-            raise ValueError(f"{expert_name} returned empty content in legacy mode. stop_reason={_get_stop_reason(response)}, content type={type(response.content).__name__}, repr={repr(response.content)[:500]}")
+            # Free text: try inline tag parsing, then formatter fallback
+            content_text = extract_text_from_content(response.content)
+            if content_text:
+                print(f"[MultiAgent:CollabExpert]   Free text response (legacy): {content_text[:200]}...")
+                break
+
+            # Empty content — retry or raise
+            if empty_attempt < MAX_EMPTY_RETRIES:
+                print(f"[MultiAgent:CollabExpert]   WARNING: Empty content (attempt {empty_attempt+1}/{MAX_EMPTY_RETRIES+1}), retrying...")
+            else:
+                _dump_empty_content_debug(messages, response, model, tools, expert_name)
+                raise ValueError(f"{expert_name} returned empty content in legacy mode after {MAX_EMPTY_RETRIES+1} attempts. stop_reason={_get_stop_reason(response)}, content type={type(response.content).__name__}, repr={repr(response.content)[:500]}")
 
         # Step A: Try parsing <public>/<private> XML tags
         output = _parse_expert_tags(content_text)
@@ -852,29 +862,36 @@ def collab_expert_node(state: MultiAgentState, config):
         # Combined mode: bind both tools and structured output schema on a single call
         print(f"[MultiAgent:CollabExpert]   Invoking model (tools + structured output)...")
         bound_model = bind_tools_and_schema(model, tools, ExpertOutput)
-        response = invoke_with_timeout(bound_model, messages, get_llm_timeout(config), label=expert_name)
-        print(f"[MultiAgent:CollabExpert]   Stop reason: {_get_stop_reason(response)}")
+        for empty_attempt in range(MAX_EMPTY_RETRIES + 1):
+            response = invoke_with_timeout(bound_model, messages, get_llm_timeout(config), label=expert_name)
+            print(f"[MultiAgent:CollabExpert]   Stop reason: {_get_stop_reason(response)}")
 
-        # Tag message with expert name
-        response.name = expert_name
+            # Tag message with expert name
+            response.name = expert_name
 
-        # Tool calls: route to tool execution (structured output doesn't apply)
-        if response.tool_calls:
-            print(f"[MultiAgent:CollabExpert]   Response has {len(response.tool_calls)} tool call(s): {[tc['name'] for tc in response.tool_calls]}")
-            return {
-                "messages": [response],
-                "last_tool_caller": "expert"
-            }
+            # Tool calls: route to tool execution (structured output doesn't apply)
+            if response.tool_calls:
+                print(f"[MultiAgent:CollabExpert]   Response has {len(response.tool_calls)} tool call(s): {[tc['name'] for tc in response.tool_calls]}")
+                return {
+                    "messages": [response],
+                    "last_tool_caller": "expert"
+                }
 
-        # Text response: parse structured JSON output
-        raw_json = extract_text_from_content(response.content)
-        print(f"[MultiAgent:CollabExpert]   Raw JSON response: {raw_json[:200]}...")
-        if not raw_json:
-            print(f"[MultiAgent:CollabExpert]   ERROR: Empty text extracted from response")
-            print(f"[MultiAgent:CollabExpert]   response.content type={type(response.content).__name__}, repr={repr(response.content)[:500]}")
-            print(f"[MultiAgent:CollabExpert]   response_metadata: {response.response_metadata}")
-            _dump_empty_content_debug(messages, response, model, tools, expert_name)
-            raise ValueError(f"{expert_name} returned empty content (no text to parse as JSON). stop_reason={_get_stop_reason(response)}, content type={type(response.content).__name__}, repr={repr(response.content)[:500]}")
+            # Text response: parse structured JSON output
+            raw_json = extract_text_from_content(response.content)
+            if raw_json:
+                print(f"[MultiAgent:CollabExpert]   Raw JSON response: {raw_json[:200]}...")
+                break
+
+            # Empty content — retry or raise
+            if empty_attempt < MAX_EMPTY_RETRIES:
+                print(f"[MultiAgent:CollabExpert]   WARNING: Empty content (attempt {empty_attempt+1}/{MAX_EMPTY_RETRIES+1}), retrying...")
+            else:
+                print(f"[MultiAgent:CollabExpert]   ERROR: Empty text extracted from response")
+                print(f"[MultiAgent:CollabExpert]   response.content type={type(response.content).__name__}, repr={repr(response.content)[:500]}")
+                print(f"[MultiAgent:CollabExpert]   response_metadata: {response.response_metadata}")
+                _dump_empty_content_debug(messages, response, model, tools, expert_name)
+                raise ValueError(f"{expert_name} returned empty content (no text to parse as JSON) after {MAX_EMPTY_RETRIES+1} attempts. stop_reason={_get_stop_reason(response)}, content type={type(response.content).__name__}, repr={repr(response.content)[:500]}")
         output = ExpertOutput.model_validate_json(raw_json)
 
         print(f"[MultiAgent:CollabExpert]   Public response: {output.public_response[:200]}...")
