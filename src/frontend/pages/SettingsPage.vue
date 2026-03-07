@@ -151,6 +151,16 @@
             </SettingCard>
             <SettingCard>
               <CustomInput
+                v-model.number="settingForm.attachmentCharLimit"
+                :title="$t('attachmentCharLimitLabel')"
+                :placeholder="$t('attachmentCharLimitPlaceholder')"
+                type="number"
+                :min="500"
+                :step="1000"
+              />
+            </SettingCard>
+            <SettingCard>
+              <CustomInput
                 v-model="settingForm.tavilyApiKey"
                 :title="$t('tavilyApiKeyLabel')"
                 :placeholder="$t('tavilyApiKeyPlaceholder')"

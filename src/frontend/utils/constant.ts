@@ -55,7 +55,6 @@ export const availableAPIs: IStringKeyMap = {
 
 // official API 可用的模型
 export const availableModels: string[] = [
-  'gpt-5.4-pro',
   'gpt-5.4',
   'gpt-5.2-pro',
   'gpt-5.2',
