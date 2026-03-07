@@ -171,7 +171,7 @@ WordLLMs is essentially a "mini" website inside Word, Word only presents it. As 
    > **Note**: Your conversation history is stored in a file on your PC. The `-v` flag is how Docker links your chosen Windows folder to the app running inside the container. Without it, all conversations are permanently lost every time the container stops. The app's file browser can only access folders that were linked this way at startup — you cannot change the folder later from inside the app.
 
    Now, the app should be running in the background. You should see this in the Docker:
-   ![Image](https://github.com/kauttoj/WordLLMs/blob/master/public/docker1.png)
+   ![Image](https://github.com/kauttoj/WordLLMs/blob/master/public/docker0.png)
 
    Later, when you restart your app, click run in Docker
    ![Image](https://github.com/kauttoj/WordLLMs/blob/master/public/docker2.png)
