@@ -171,9 +171,11 @@ WordLLMs is essentially a "mini" website inside Word, Word only presents it. As 
    > **Note**: Your conversation history is stored in a file on your PC. The `-v` flag is how Docker links your chosen Windows folder to the app running inside the container. Without it, all conversations are permanently lost every time the container stops. The app's file browser can only access folders that were linked this way at startup — you cannot change the folder later from inside the app.
 
    Now, the app should be running in the background. You should see this in the Docker:
+
    ![Image](https://github.com/kauttoj/WordLLMs/blob/master/public/docker0.png)
 
    Later, when you restart your app, click run in Docker
+   
    ![Image](https://github.com/kauttoj/WordLLMs/blob/master/public/docker2.png)
 
    or run this command in console:
@@ -193,15 +195,15 @@ WordLLMs is essentially a "mini" website inside Word, Word only presents it. As 
    
    Then repeat those same two pull and run commands as above.
 
-3. Open WordLLMs in Word, go to **Settings** and set **History Database Path** to:
+4. Open WordLLMs in Word, go to **Settings** and set **History Database Path** to:
    ```
    /app/data/conversations.db
    ```
    or any other filename you prefer. Click the folder icon to browse existing `.db` files, or type the path directly. This path always uses the `/app/data` form regardless of what Windows folder you chose — Docker translates it automatically.
 
-4. Download [manifest.xml](https://github.com/kauttoj/WordLLMs/blob/master/release/self-hosted/manifest.xml).
-5. [Optional: Edit `manifest.xml` if you changed the host port in the `docker run` command (e.g., if you used `-p 8080:8000`, replace `localhost:3000` with `localhost:8080`).]
-6. Proceed to the [Add-in Installation Guide](#add-in-installation-guide).
+5. Download [manifest.xml](https://github.com/kauttoj/WordLLMs/blob/master/release/self-hosted/manifest.xml).
+6. [Optional: Edit `manifest.xml` if you changed the host port in the `docker run` command (e.g., if you used `-p 8080:8000`, replace `localhost:3000` with `localhost:8080`).]
+7. Proceed to the [Add-in Installation Guide](#add-in-installation-guide).
 
 > All processing happens in the container, it's the "brains" of the app. You need to run the Docker image (or Python app) each time you use WordLLMs. Your either do this via terminal OR Docker desktop client.
 
@@ -357,4 +359,6 @@ MIT License
 ## Show your support
 
 Give a star if you find this app useful.
+
+
 
