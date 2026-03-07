@@ -5,15 +5,15 @@ export interface BaseChatCompletionOptions {
   messages: Messages
   errorIssue: Ref<boolean | string | null> // extends string for specific issues
   loading: Ref<boolean>
-  maxContextTokens?: number
-  temperature?: number
-  llmTimeout?: number
+  maxContextTokens: number
+  temperature: number
+  llmTimeout: number
   abortSignal?: AbortSignal
   threadId: string
   additionalSystemPrompt?: string // Persistent behavioral instructions appended to system prompt
   conversationId?: string // Enables unified cross-mode conversation history
   attachments?: { filename: string; data: string }[]
-  attachmentCharLimit?: number
+  attachmentCharLimit: number
   onStream: (text: string, speaker?: string, forceNew?: boolean) => void
 }
 
@@ -83,7 +83,7 @@ export interface AgentOptions extends BaseChatCompletionOptions {
   onToolCall?: (toolName: string, args: any) => void
   onToolResult?: (toolName: string, result: string) => void
   onNewBlock?: () => void
-  recursionLimit?: number
+  recursionLimit: number
   checkpointId?: string
   // Provider-specific options
   model?: string
@@ -113,8 +113,8 @@ export interface AgentOptions extends BaseChatCompletionOptions {
 export interface MultiAgentExpertConfig {
   provider: supportedProviders
   model?: string
-  temperature?: number
-  maxContextTokens?: number
+  temperature: number
+  maxContextTokens: number
   // Provider-specific options
   config?: {
     apiKey: string
@@ -141,7 +141,7 @@ export interface MultiAgentExpertConfig {
 export interface MultiAgentOptions extends BaseChatCompletionOptions {
   mode: 'parallel' | 'collaborative'
   operatingMode?: 'combined' | 'legacy'
-  maxRounds?: number
+  maxRounds: number
   useExpertMemory?: boolean
   expertFullHistory?: boolean
   useExpertParallelization?: boolean
@@ -149,7 +149,7 @@ export interface MultiAgentOptions extends BaseChatCompletionOptions {
   overseer: MultiAgentExpertConfig
   synthesizer?: MultiAgentExpertConfig
   formatter?: MultiAgentExpertConfig
-  recursionLimit?: number
+  recursionLimit: number
   language?: string
   enabledWordTools?: string[]
   enabledGeneralTools?: string[]

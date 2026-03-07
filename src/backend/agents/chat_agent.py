@@ -98,13 +98,13 @@ def agent_node(state: AgentState, config):
     print(f"[Graph:Agent] Using model: {type(model).__name__} (model_name: {model_name})")
 
     # Trim messages to fit context window before invoking
-    max_ctx = config["configurable"].get("max_context_tokens", 128000)
+    max_ctx = config["configurable"]["max_context_tokens"]
     trimmed = trim_to_fit(state["messages"], model_name, max_ctx)
 
     # Bind all tools (server + client)
     model_with_tools = model.bind_tools(tools + client_tools, strict=_needs_strict(model))
 
-    llm_timeout = config["configurable"].get("llm_timeout", 60)
+    llm_timeout = config["configurable"]["llm_timeout"]
     response = invoke_with_timeout(model_with_tools, trimmed, llm_timeout, label="Agent")
 
     if response.tool_calls:
@@ -353,13 +353,13 @@ async def chat_complete(
 async def stream_chat(
     model: BaseChatModel,
     messages: list[Message],
+    max_context_tokens: int,
+    llm_timeout: int,
     filter_thinking: bool = True,
     language: str | None = None,
     additional_system_prompt: str | None = None,
     conversation_id: str | None = None,
     conversation_store: "ConversationStore | None" = None,
-    max_context_tokens: int = 128000,
-    llm_timeout: int = 60,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Stream a simple chat response (no tools).
 
@@ -533,17 +533,17 @@ async def stream_agent(
     model: BaseChatModel,
     messages: list[Message],
     tools: list,
+    max_context_tokens: int,
+    llm_timeout: int,
+    recursion_limit: int,
     client_tools: list | None = None,
     tool_names: list[str] | None = None,
-    recursion_limit: int = 25,
     filter_thinking: bool = True,
     language: str | None = None,
     additional_system_prompt: str | None = None,
     thread_id: str | None = None,
     conversation_id: str | None = None,
     conversation_store: "ConversationStore | None" = None,
-    max_context_tokens: int = 128000,
-    llm_timeout: int = 60,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Entry point for new agent request.
 
@@ -719,11 +719,11 @@ async def resume_agent(
     tool_results: list[dict],
     server_tools: list,
     client_tools: list,
+    max_context_tokens: int,
+    llm_timeout: int,
+    recursion_limit: int,
     filter_thinking: bool = True,
     conversation_store=None,
-    max_context_tokens: int = 128000,
-    llm_timeout: int = 60,
-    recursion_limit: int = 25,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Entry point for resuming a paused agent."""
 

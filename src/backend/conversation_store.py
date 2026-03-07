@@ -150,7 +150,8 @@ def _deserialize_message(data: dict[str, Any]) -> BaseMessage:
 # Default DB path
 # ---------------------------------------------------------------------------
 
-_DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_DATA_DIR = Path(os.environ.get("DATA_DIR", str(_PROJECT_ROOT / "data")))
 DEFAULT_DB_PATH = str(_DATA_DIR / "conversations.db")
 MAX_THREADS = 500
 

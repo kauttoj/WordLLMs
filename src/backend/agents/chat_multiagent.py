@@ -341,18 +341,17 @@ def get_model(config: dict, role: str, index: int = 0) -> BaseChatModel:
     raise ValueError(f"Unknown role {role}")
 
 def get_llm_timeout(config: dict) -> int:
-    return config["configurable"].get("llm_timeout", 60)
+    return config["configurable"]["llm_timeout"]
 
 def get_max_context_tokens(config: dict, role: str, index: int = 0) -> int:
     """Helper to retrieve per-role max_context_tokens from runtime config."""
     if role == "expert":
-        limits = config["configurable"].get("expert_max_context_tokens", [])
-        return limits[index] if index < len(limits) else 128000
+        return config["configurable"]["expert_max_context_tokens"][index]
     elif role == "overseer":
-        return config["configurable"].get("overseer_max_context_tokens", 128000)
+        return config["configurable"]["overseer_max_context_tokens"]
     elif role == "synthesizer":
-        return config["configurable"].get("synthesizer_max_context_tokens", 128000)
-    return 128000
+        return config["configurable"]["synthesizer_max_context_tokens"]
+    raise ValueError(f"Unknown role {role}")
 
 def get_tools_list(config: dict, role: str) -> list:
     """Helper to retrieve tools passed via runtime config."""
@@ -1776,14 +1775,14 @@ async def stream_multiagent(
     supervisor_server_tools: list,
     supervisor_client_tools: list,
     recursion_limit: int,
+    expert_max_context_tokens: list[int],
+    overseer_max_context_tokens: int,
+    synthesizer_max_context_tokens: int,
+    llm_timeout: int,
     language: str = "English",
     additional_system_prompt: str | None = None,
     conversation_id: str | None = None,
     conversation_store: Any = None,
-    expert_max_context_tokens: list[int] | None = None,
-    overseer_max_context_tokens: int = 128000,
-    synthesizer_max_context_tokens: int = 128000,
-    llm_timeout: int = 60,
     legacy_mode: bool = False,
     formatter_model: BaseChatModel | None = None,
     expert_full_history: bool = False,
@@ -1831,7 +1830,7 @@ async def stream_multiagent(
             "expert_client_tools": expert_client_tools,
             "supervisor_server_tools": supervisor_server_tools,
             "supervisor_client_tools": supervisor_client_tools,
-            "expert_max_context_tokens": expert_max_context_tokens or [128000] * len(expert_models),
+            "expert_max_context_tokens": expert_max_context_tokens,
             "overseer_max_context_tokens": overseer_max_context_tokens,
             "synthesizer_max_context_tokens": synthesizer_max_context_tokens,
             "llm_timeout": llm_timeout,
@@ -1891,7 +1890,7 @@ async def stream_multiagent(
                 expert_full_history=expert_full_history,
                 cross_turn_history=cross_turn_history,
                 user_messages=user_messages,
-                expert_max_context_tokens=expert_max_context_tokens or [128000] * len(expert_models),
+                expert_max_context_tokens=expert_max_context_tokens,
                 llm_timeout=llm_timeout,
                 session_id=thread_id,
                 additional_system_prompt=additional_system_prompt or "",

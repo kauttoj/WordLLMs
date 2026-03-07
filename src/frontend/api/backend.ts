@@ -412,9 +412,9 @@ export async function streamChatFromBackend(options: ProviderOptions, language?:
     provider: mapProvider(options.provider),
     model: getModelName(options),
     credentials: buildCredentials(options),
-    temperature: options.temperature ?? 1.0,
-    max_context_tokens: options.maxContextTokens ?? 128000,
-    llm_timeout: options.llmTimeout ?? 60,
+    temperature: options.temperature,
+    max_context_tokens: options.maxContextTokens,
+    llm_timeout: options.llmTimeout,
     filter_thinking: 'lmstudioFilterThinking' in options ? (options.lmstudioFilterThinking ?? true) : false,
   }
 
@@ -435,7 +435,7 @@ export async function streamChatFromBackend(options: ProviderOptions, language?:
 
   if (options.attachments?.length) {
     body.attachments = options.attachments
-    body.attachment_char_limit = options.attachmentCharLimit ?? 50000
+    body.attachment_char_limit = options.attachmentCharLimit
   }
 
   try {
@@ -525,14 +525,14 @@ export async function streamAgentFromBackend(options: AgentOptions, language?: s
     provider: mapProvider(options.provider),
     model: getModelName(options),
     credentials: buildCredentials(options),
-    temperature: options.temperature ?? 1.0,
-    max_context_tokens: options.maxContextTokens ?? 128000,
-    llm_timeout: options.llmTimeout ?? 60,
+    temperature: options.temperature,
+    max_context_tokens: options.maxContextTokens,
+    llm_timeout: options.llmTimeout,
     filter_thinking: options.lmstudioFilterThinking ?? false,
     tools: toolNames,
     thread_id: options.threadId,
     conversation_id: options.conversationId,
-    recursion_limit: options.recursionLimit ?? 25,
+    recursion_limit: options.recursionLimit,
     tavily_api_key: localStorage.getItem('tavilyApiKey') || undefined,
   }
 
@@ -548,7 +548,7 @@ export async function streamAgentFromBackend(options: AgentOptions, language?: s
 
   if (options.attachments?.length) {
     agentBody.attachments = options.attachments
-    agentBody.attachment_char_limit = options.attachmentCharLimit ?? 50000
+    agentBody.attachment_char_limit = options.attachmentCharLimit
   }
 
   // RPC loop: stream → if client_tool_call → execute Office.js → continue → repeat
@@ -726,8 +726,8 @@ function buildExpertConfig(expert: MultiAgentExpertConfig): any {
     provider: mapProvider(expert.provider),
     model,
     credentials: creds,
-    temperature: expert.temperature ?? 1.0,
-    max_context_tokens: expert.maxContextTokens ?? 128000,
+    temperature: expert.temperature,
+    max_context_tokens: expert.maxContextTokens,
   }
 }
 
@@ -840,7 +840,7 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
     messages: convertMessages(options.messages),
     mode: options.mode,
     operating_mode: options.operatingMode ?? 'legacy',
-    max_rounds: options.maxRounds ?? 3,
+    max_rounds: options.maxRounds,
     use_expert_memory: options.useExpertMemory ?? true,
     expert_full_history: options.expertFullHistory ?? false,
     use_expert_parallelization: options.useExpertParallelization ?? true,
@@ -850,8 +850,8 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
     formatter: formatterConfig,
     expert_tools: expertTools,
     supervisor_tools: supervisorTools,
-    recursion_limit: options.recursionLimit ?? 25,
-    llm_timeout: options.llmTimeout ?? 60,
+    recursion_limit: options.recursionLimit,
+    llm_timeout: options.llmTimeout,
     filter_thinking: false, // Can be enhanced to support per-expert thinking filtering
     language: options.language,
     conversation_id: options.conversationId,
@@ -865,7 +865,7 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
 
   if (options.attachments?.length) {
     multiAgentBody.attachments = options.attachments
-    multiAgentBody.attachment_char_limit = options.attachmentCharLimit ?? 50000
+    multiAgentBody.attachment_char_limit = options.attachmentCharLimit
   }
 
   // RPC loop: stream → if client_tool_call → execute Office.js → continue → repeat

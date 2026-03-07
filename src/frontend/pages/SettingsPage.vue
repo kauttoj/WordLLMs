@@ -289,9 +289,9 @@
                   :title="t(getLabel(item))"
                   :placeholder="t(getPlaceholder(item))"
                   type="number"
-                  :min="0"
-                  :max="item.includes('Temperature') ? 2 : 32000"
-                  :step="item.includes('Temperature') ? 0.1 : 1"
+                  :min="getNumericConstraints(item).min"
+                  :max="getNumericConstraints(item).max"
+                  :step="getNumericConstraints(item).step"
                 />
               </SettingCard>
               <SettingCard v-for="item in getApiCheckboxSettings(platform)" :key="item">
@@ -737,6 +737,13 @@ const getApiInputSettings = (platform: string) => {
     key =>
       key.startsWith(platform) && settingPreset[key as SettingNames].type === 'input' && !key.endsWith('CustomModel'),
   )
+}
+
+const getNumericConstraints = (item: string): { min: number; max?: number; step: number } => {
+  if (item.includes('Temperature')) return { min: 0, max: 2, step: 0.1 }
+  if (item.includes('MaxContextTokens')) return { min: 4000, step: 1000 }
+  if (item.includes('attachmentCharLimit')) return { min: 500, step: 1000 }
+  return { min: 0, step: 1 }
 }
 
 const getApiNumSettings = (platform: string) => {

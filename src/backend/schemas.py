@@ -95,14 +95,14 @@ class ChatRequest(BaseModel):
     model: str
     credentials: dict[str, Any]
     temperature: float = Field(default=1.0, ge=0, le=2)
-    max_context_tokens: int = Field(default=128000, ge=1)
-    llm_timeout: int = Field(default=60, ge=5, le=900)  # Seconds per LLM API call
+    max_context_tokens: int = Field(default=128000, ge=4000)
+    llm_timeout: int = Field(default=90, ge=5)  # Seconds per LLM API call
     filter_thinking: bool = Field(default=True)
     language: str | None = None  # If provided, backend generates default system prompt
     additional_system_prompt: str | None = None  # Appended to system prompt as behavioral instructions
     conversation_id: str | None = None  # Enables unified cross-mode conversation history
     attachments: list[Attachment] = Field(default_factory=list)
-    attachment_char_limit: int = Field(default=500000, ge=500)  # Per-file char limit (0=unlimited)
+    attachment_char_limit: int = Field(default=100000, ge=500)  # Per-file char limit
 
 
 class AgentRequest(BaseModel):
@@ -113,15 +113,15 @@ class AgentRequest(BaseModel):
     tools: list[str] = Field(default_factory=list)
     thread_id: str | None = None
     conversation_id: str | None = None  # Enables unified cross-mode conversation history
-    recursion_limit: int = Field(default=50, ge=1, le=500)
+    recursion_limit: int = Field(default=120, ge=1)
     temperature: float = Field(default=1.0, ge=0, le=2)
-    max_context_tokens: int = Field(default=128000, ge=1)
-    llm_timeout: int = Field(default=60, ge=5, le=900)  # Seconds per LLM API call
+    max_context_tokens: int = Field(default=128000, ge=4000)
+    llm_timeout: int = Field(default=90, ge=5)  # Seconds per LLM API call
     filter_thinking: bool = Field(default=True)
     language: str | None = None  # If provided, backend generates default system prompt
     additional_system_prompt: str | None = None  # Appended to system prompt as behavioral instructions
     attachments: list[Attachment] = Field(default_factory=list)
-    attachment_char_limit: int = Field(default=500000, ge=500)  # Per-file char limit (0=unlimited)
+    attachment_char_limit: int = Field(default=100000, ge=500)  # Per-file char limit
     tavily_api_key: str | None = None  # API key for Tavily web search (cross-provider)
 
 
@@ -138,10 +138,10 @@ class AgentContinueRequest(BaseModel):
     model: str
     credentials: dict[str, Any]
     temperature: float = Field(default=1, ge=0, le=2)
-    max_context_tokens: int = Field(default=128000, ge=1)
-    llm_timeout: int = Field(default=60, ge=5, le=900)  # Seconds per LLM API call
+    max_context_tokens: int = Field(default=128000, ge=4000)
+    llm_timeout: int = Field(default=90, ge=5)  # Seconds per LLM API call
     filter_thinking: bool = Field(default=True)
-    recursion_limit: int = Field(default=50, ge=1, le=500)
+    recursion_limit: int = Field(default=120, ge=1)
     tavily_api_key: str | None = None
     tools: list[str] = Field(default_factory=list)
 
@@ -161,7 +161,7 @@ class MultiAgentExpertConfig(BaseModel):
     model: str
     credentials: dict[str, Any]
     temperature: float = Field(default=1, ge=0, le=2)
-    max_context_tokens: int = Field(default=128000, ge=1)
+    max_context_tokens: int = Field(default=128000, ge=4000)
 
 
 class MultiAgentRequest(BaseModel):
@@ -169,7 +169,7 @@ class MultiAgentRequest(BaseModel):
     messages: list[Message]
     mode: Literal["parallel", "collaborative"]
     operating_mode: Literal["combined", "legacy"] = Field(default="combined")
-    max_rounds: int = Field(default=3, ge=1, le=10)
+    max_rounds: int = Field(default=3, ge=1, le=50)
     use_expert_memory: bool = Field(default=True)
     expert_full_history: bool = Field(default=False)  # Give experts cross-turn conversation history
     use_expert_parallelization: bool = Field(default=True)  # True = async parallel, False = sequential LangGraph
@@ -183,13 +183,13 @@ class MultiAgentRequest(BaseModel):
     expert_tools: list[str] = Field(default_factory=list)
     supervisor_tools: list[str] = Field(default_factory=list)
 
-    recursion_limit: int = Field(default=25, ge=1, le=500)
-    llm_timeout: int = Field(default=60, ge=5, le=900)  # Seconds per LLM API call
+    recursion_limit: int = Field(default=120, ge=1)
+    llm_timeout: int = Field(default=90, ge=5)  # Seconds per LLM API call
     filter_thinking: bool = Field(default=True)
     language: str | None = None  # If provided, used for system prompt language
     additional_system_prompt: str | None = None  # Appended to system prompt as behavioral instructions
     attachments: list[Attachment] = Field(default_factory=list)
-    attachment_char_limit: int = Field(default=500000, ge=500)  # Per-file char limit (0=unlimited)
+    attachment_char_limit: int = Field(default=100000, ge=500)  # Per-file char limit
     tavily_api_key: str | None = None
 
 
