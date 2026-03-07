@@ -3,6 +3,7 @@ import sys
 import json
 import pickle
 import uuid
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator, Annotated, Literal, List, TypedDict, Dict
@@ -19,7 +20,7 @@ from langgraph.checkpoint.memory import MemorySaver
 try:
     from .utils import extract_text_from_content
     from .context import trim_to_fit
-    from .llm_retry import invoke_with_timeout, LLM_RETRY_POLICY
+    from .llm_retry import invoke_with_timeout, ainvoke_with_timeout, LLM_RETRY_POLICY
     from ..providers.base import get_model_name
     from ..prompts.system_prompts import (
         generate_multiagent_expert_prompt,
@@ -27,12 +28,13 @@ try:
         format_expert_responses_message,
         generate_multiagent_overseer_prompt,
         generate_multiagent_overseer_final_prompt,
+        inject_behavior,
     )
     from ..schemas import to_langchain_messages
 except ImportError:
     from agents.utils import extract_text_from_content
     from agents.context import trim_to_fit
-    from agents.llm_retry import invoke_with_timeout, LLM_RETRY_POLICY
+    from agents.llm_retry import invoke_with_timeout, ainvoke_with_timeout, LLM_RETRY_POLICY
     from providers.base import get_model_name
     from prompts.system_prompts import (
         generate_multiagent_expert_prompt,
@@ -40,11 +42,93 @@ except ImportError:
         format_expert_responses_message,
         generate_multiagent_overseer_prompt,
         generate_multiagent_overseer_final_prompt,
+        inject_behavior,
     )
     from schemas import to_langchain_messages
 
 # Max retries when an expert LLM returns empty content (transient provider quirk)
 MAX_EMPTY_RETRIES = 2
+
+# Controls how parallel-mode experts execute.
+# "sequential" = current LangGraph sequential execution (experts run one at a time inside graph)
+# "parallel"   = true async parallel execution (experts run concurrently via asyncio)
+PARALLEL_EXPERT_MODE: Literal["sequential", "parallel"] = "parallel"
+
+# Max tool-call rounds per expert in parallel async mode (safety limit)
+MAX_ASYNC_TOOL_ROUNDS = 10
+
+
+class ToolBroker:
+    """Batches client tool requests from parallel async experts for SSE interrupt.
+
+    Each expert coroutine calls request_client_tool() which suspends on an
+    asyncio.Future. When ALL active experts are either done or waiting for
+    client tools, the monitor loop detects this (via wait_all_blocked()) and
+    yields a batched client_tool_call SSE event. On resume, resolve_results()
+    resolves the futures so experts can continue.
+    """
+
+    def __init__(self):
+        self._pending_futures: dict[str, asyncio.Future] = {}   # call_id → Future
+        self._pending_requests: list[dict] = []                  # queued tool calls
+        self._active_count: int = 0        # experts still running
+        self._waiting_count: int = 0       # experts blocked on client tools
+        self._all_blocked = asyncio.Event()
+
+    def register_expert(self):
+        self._active_count += 1
+
+    def expert_completed(self):
+        """Mark an expert as finished (text response or exception)."""
+        self._active_count -= 1
+        if self._waiting_count >= self._active_count:
+            self._all_blocked.set()
+
+    async def request_client_tool(self, expert_name: str, tool_call: dict) -> str:
+        """Called by expert coroutine. Blocks until frontend returns the result."""
+        call_id = tool_call["id"]
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        self._pending_futures[call_id] = future
+        self._pending_requests.append({
+            "name": tool_call["name"],
+            "args": tool_call["args"],
+            "call_id": call_id,
+            "speaker": expert_name,
+        })
+        self._waiting_count += 1
+        if self._waiting_count >= self._active_count:
+            self._all_blocked.set()
+        return await future
+
+    def resolve_results(self, tool_results: list[dict]):
+        """Called on resume. Resolves pending Futures by call_id."""
+        for tr in tool_results:
+            future = self._pending_futures.pop(tr["call_id"], None)
+            if future and not future.done():
+                future.set_result(tr["result"])
+        self._waiting_count = 0
+        self._all_blocked.clear()
+
+    def has_pending_requests(self) -> bool:
+        return bool(self._pending_requests)
+
+    def take_pending_requests(self) -> list[dict]:
+        reqs = sorted(self._pending_requests, key=lambda r: r["speaker"])
+        self._pending_requests.clear()
+        return reqs
+
+    async def wait_all_blocked(self):
+        """Wait until all active experts are blocked on client tools (or all done)."""
+        await self._all_blocked.wait()
+
+    def cancel_all(self):
+        """Cancel all pending futures (cleanup on error)."""
+        for future in self._pending_futures.values():
+            if not future.done():
+                future.cancel()
+        self._pending_futures.clear()
+        self._pending_requests.clear()
 
 def _parse_expert_tags(text: str) -> "ExpertOutput | None":
     """Try to parse <public>...</public> and <private>...</private> tags from text.
@@ -537,6 +621,7 @@ def parallel_expert_node(state: MultiAgentState, config):
     system_prompt = generate_multiagent_expert_prompt(
         expert_name, idx, total_experts, 1, False, "", "parallel", state["language"]
     )
+    system_prompt = inject_behavior(system_prompt, state.get("additional_system_prompt", "") or None)
 
     # Inject public-only cross-turn history if enabled
     if state.get("expert_full_history", False):
@@ -645,6 +730,123 @@ def parallel_tool_post_processing_node(state: MultiAgentState, config):
         "current_expert_index": idx + 1
     }
 
+# -- Async Parallel Expert Execution (outside LangGraph) --
+
+async def _run_single_expert_async(
+    idx: int,
+    model: BaseChatModel,
+    server_tools: list,
+    client_tool_names: set[str],
+    all_tools: list,
+    broker: ToolBroker,
+    total_experts: int,
+    language: str,
+    expert_full_history: bool,
+    cross_turn_history: list[BaseMessage],
+    user_messages: list[BaseMessage],
+    max_context_tokens: int,
+    llm_timeout: int,
+    additional_system_prompt: str = "",
+) -> tuple[str, str, list[dict]]:
+    """Run a single expert asynchronously outside LangGraph.
+
+    Server tools execute inline. Client tools suspend on ToolBroker futures.
+    Returns (expert_name, response_text, buffered_sse_events).
+    On failure, calls broker.expert_completed() and re-raises.
+    """
+    expert_name = f"Expert_{idx+1}"
+    tool_events: list[dict] = []
+
+    try:
+        model_name = get_model_name(model)
+        print(f"[MultiAgent:AsyncExpert] Starting {expert_name} ({idx+1}/{total_experts})")
+        print(f"[MultiAgent:AsyncExpert]   Model: {model.__class__.__name__} ({model_name})")
+
+        # Build system prompt (same as parallel_expert_node)
+        system_prompt = generate_multiagent_expert_prompt(
+            expert_name, idx, total_experts, 1, False, "", "parallel", language
+        )
+        system_prompt = inject_behavior(system_prompt, additional_system_prompt or None)
+
+        # Build message history (same logic as parallel_expert_node)
+        if expert_full_history:
+            cross_turn_public = _get_collab_public_history(cross_turn_history)
+            system_prompt += "\n\nConversation history from prior turns is included for context. The most recent user message is your current task."
+            sep = "\n\n" + "─" * 6 + "\n\n"
+            if (cross_turn_public and user_messages
+                    and isinstance(cross_turn_public[-1], HumanMessage)
+                    and isinstance(user_messages[0], HumanMessage)):
+                merged = HumanMessage(content=cross_turn_public[-1].content + sep + user_messages[0].content)
+                history = cross_turn_public[:-1] + [merged] + user_messages[1:]
+            else:
+                history = cross_turn_public + user_messages
+        else:
+            history = list(user_messages)
+
+        messages = [SystemMessage(content=system_prompt)] + history
+        messages = trim_to_fit(messages, model_name, max_context_tokens)
+
+        # Bind ALL tools (same as sequential mode)
+        if all_tools:
+            model_with_tools = model.bind_tools(all_tools, strict=_needs_strict(model))
+        else:
+            model_with_tools = model
+
+        server_tool_map = {t.name: t for t in server_tools}
+
+        for tool_round in range(MAX_ASYNC_TOOL_ROUNDS):
+            print(f"[MultiAgent:AsyncExpert]   {expert_name} round {tool_round+1}")
+            response = await ainvoke_with_timeout(
+                model_with_tools, messages, llm_timeout, label=expert_name
+            )
+
+            if not response.tool_calls:
+                content_text = extract_text_from_content(response.content)
+                if not content_text and tool_round == 0:
+                    print(f"[MultiAgent:AsyncExpert]   {expert_name}: empty response, retrying...")
+                    continue
+                if not content_text:
+                    content_text = "(Expert provided tool results but no final summary.)"
+                print(f"[MultiAgent:AsyncExpert]   {expert_name} done: {content_text[:100]}...")
+                broker.expert_completed()
+                return expert_name, content_text, tool_events
+
+            # Process tool calls
+            print(f"[MultiAgent:AsyncExpert]   {expert_name} tool calls: {[tc['name'] for tc in response.tool_calls]}")
+            tool_results = []
+            for tc in response.tool_calls:
+                tool_events.append({
+                    "event": "tool_call",
+                    "data": {"name": tc["name"], "args": tc["args"], "speaker": expert_name}
+                })
+
+                if tc["name"] in server_tool_map:
+                    # Server tool: execute inline
+                    try:
+                        res = server_tool_map[tc["name"]].invoke(tc["args"])
+                        result_str = str(res)
+                    except Exception as e:
+                        result_str = f"Error: {str(e)}"
+                    tool_results.append(ToolMessage(tool_call_id=tc["id"], content=result_str))
+                elif tc["name"] in client_tool_names:
+                    # Client tool: suspend on broker future
+                    result_str = await broker.request_client_tool(expert_name, tc)
+                    tool_results.append(ToolMessage(tool_call_id=tc["id"], content=result_str))
+                else:
+                    available = sorted(set(server_tool_map) | client_tool_names)
+                    result_str = f"Error: Unknown tool '{tc['name']}'. Available tools: {', '.join(available)}"
+                    tool_results.append(ToolMessage(tool_call_id=tc["id"], content=result_str))
+
+            messages.append(response)
+            messages.extend(tool_results)
+
+        raise TimeoutError(f"{expert_name} exceeded max tool rounds ({MAX_ASYNC_TOOL_ROUNDS})")
+
+    except Exception:
+        broker.expert_completed()
+        raise
+
+
 def synthesizer_node(state: MultiAgentState, config):
     """Combines parallel outputs."""
     model = get_model(config, "synthesizer")
@@ -657,11 +859,7 @@ def synthesizer_node(state: MultiAgentState, config):
     print(f"[MultiAgent:Synthesizer]   Expert responses to combine: {list(state['parallel_responses'].keys())}")
 
     prompt = generate_multiagent_synthesizer_prompt(state["language"], tools=tools)
-
-    # Append additional behavioral instructions if provided
-    extra = state.get("additional_system_prompt", "")
-    if extra:
-        prompt += "\n\n# Additional behavior instructions\n" + extra
+    prompt = inject_behavior(prompt, state.get("additional_system_prompt", "") or None)
 
     # Build expert responses as text for a HumanMessage
     expert_data = [{"expert": k, "response": v} for k, v in state["parallel_responses"].items()]
@@ -751,6 +949,7 @@ def collab_expert_node(state: MultiAgentState, config):
         True, memory, "collaborative", state["language"],
         legacy_mode=legacy_mode,
     )
+    system_prompt = inject_behavior(system_prompt, state.get("additional_system_prompt", "") or None)
 
     # Current task discussion + own tool chain
     public_history = _get_collab_public_history(state["messages"])
@@ -923,11 +1122,7 @@ def overseer_node(state: MultiAgentState, config):
     system_prompt = generate_multiagent_overseer_prompt(
         total_experts, state["current_round"], state["max_rounds"], state["language"]
     )
-
-    # Append additional behavioral instructions if provided
-    extra = state.get("additional_system_prompt", "")
-    if extra:
-        system_prompt += "\n\n# Additional behavior instructions\n" + extra
+    system_prompt = inject_behavior(system_prompt, state.get("additional_system_prompt", "") or None)
 
     cross_turn = state.get("cross_turn_history", [])
     public_history = _get_collab_public_history(state["messages"])
@@ -990,6 +1185,7 @@ def final_answer_node(state: MultiAgentState, config):
     print(f"[MultiAgent:FinalAnswer]   Tools: {[t.name for t in tools]}")
 
     system_prompt = generate_multiagent_overseer_final_prompt(state["language"], tools=tools)
+    system_prompt = inject_behavior(system_prompt, state.get("additional_system_prompt", "") or None)
 
     # Cross-turn history + public history + own tool chain (final_answer uses write tools)
     cross_turn = state.get("cross_turn_history", [])
@@ -1096,10 +1292,15 @@ def route_final_answer(state: MultiAgentState):
     print(f"[MultiAgent:Route:FinalAnswer] -> end (no tool calls)")
     return "end"
 
-def route_start(state: MultiAgentState):
+def route_start(state: MultiAgentState, config):
     mode = state["mode"]
     print(f"[MultiAgent:Route:Start] Mode: {mode}")
     if mode == "parallel":
+        # If experts already completed (async parallel pre-computed), skip to synthesizer
+        total_experts = len(config["configurable"]["expert_models"])
+        if state["parallel_responses"] and state["current_expert_index"] >= total_experts:
+            print(f"[MultiAgent:Route:Start] -> synthesizer (experts pre-completed)")
+            return "synthesizer_direct"
         print(f"[MultiAgent:Route:Start] -> parallel_expert")
         return "parallel_router"
     print(f"[MultiAgent:Route:Start] -> collab_expert")
@@ -1150,6 +1351,7 @@ def _build_graph():
     # Edges
     workflow.add_conditional_edges(START, route_start, {
         "parallel_router": "parallel_expert",
+        "synthesizer_direct": "synthesizer",  # Skip experts (async parallel pre-computed)
         "collab_router": "collab_expert"
     })
 
@@ -1384,6 +1586,178 @@ def _extract_consigliere_tool_interactions(config, mode: str, active_graph=None)
     return result
 
 
+# --- 7b. Async Parallel Expert Orchestration ---
+
+_parallel_session_cache: dict[str, dict] = {}
+
+
+async def _monitor_parallel_experts(
+    tasks: list[asyncio.Task],
+    broker: ToolBroker,
+    parallel_responses: dict[str, str],
+    session_id: str,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Monitor expert tasks and yield SSE events.
+
+    When an expert finishes, ALL its events (tool calls + final message) are
+    yielded as one atomic block immediately. No partial events leak during
+    computation — the expert buffers everything internally and returns it all
+    on completion. Different experts' blocks never interleave.
+
+    - All done → yield _experts_done.
+    - All blocked on client tools → yield batched client_tool_call + _need_resume.
+    """
+    remaining = [t for t in tasks if not t.done()]
+    blocker_task: asyncio.Task | None = None
+
+    try:
+        while remaining:
+            # Create a sentinel task that fires when all active experts are blocked
+            if blocker_task is None or blocker_task.done():
+                blocker_task = asyncio.create_task(broker.wait_all_blocked())
+
+            waitables = set(remaining) | {blocker_task}
+            done, _ = await asyncio.wait(waitables, return_when=asyncio.FIRST_COMPLETED)
+
+            # Collect all newly-completed experts from this wait() batch
+            completed_experts = []
+            for t in done:
+                if t is blocker_task:
+                    continue
+                expert_name, content_text, tool_events = t.result()  # raises on failure
+                parallel_responses[expert_name] = content_text
+                completed_experts.append((expert_name, content_text, tool_events))
+
+            # Yield each completed expert's events as an atomic block immediately
+            for expert_name, content_text, tool_events in completed_experts:
+                print(f"[MultiAgent:ParallelAsync] {expert_name} completed — flushing events")
+                for te in tool_events:
+                    yield te
+                yield {"event": "message", "data": {"content": content_text, "speaker": expert_name}}
+
+            remaining = [t for t in tasks if not t.done()]
+
+            # Check if all remaining experts are blocked on client tools
+            if remaining and blocker_task in done and broker.has_pending_requests():
+                pending_reqs = broker.take_pending_requests()
+                print(f"[MultiAgent:ParallelAsync] Batched client tool interrupt: {len(pending_reqs)} call(s)")
+
+                # Do NOT yield tool_call events here — they are already buffered in
+                # each expert's tool_events list and will appear when the expert
+                # fully completes. Only yield client_tool_call to trigger frontend
+                # tool execution.
+                yield {
+                    "event": "client_tool_call",
+                    "data": {
+                        "session_id": session_id,
+                        "tool_calls": pending_reqs,
+                    }
+                }
+                yield {"event": "_need_resume", "data": {}}
+                return
+
+        # All experts done
+        yield {"event": "_experts_done", "data": {"parallel_responses": parallel_responses}}
+
+    except Exception:
+        # Cancel all remaining tasks on any failure
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+        if blocker_task and not blocker_task.done():
+            blocker_task.cancel()
+        broker.cancel_all()
+        raise
+    finally:
+        if blocker_task and not blocker_task.done():
+            blocker_task.cancel()
+
+
+async def _run_parallel_experts(
+    expert_models: list[BaseChatModel],
+    server_tools: list,
+    client_tool_names: set[str],
+    all_expert_tools: list,
+    total_experts: int,
+    language: str,
+    expert_full_history: bool,
+    cross_turn_history: list[BaseMessage],
+    user_messages: list[BaseMessage],
+    expert_max_context_tokens: list[int],
+    llm_timeout: int,
+    session_id: str,
+    additional_system_prompt: str = "",
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Run all experts in parallel and yield SSE events.
+
+    Delegates to _monitor_parallel_experts for the event loop.
+    Stores session in _parallel_session_cache if client tools need interrupt.
+    """
+    broker = ToolBroker()
+    for _ in range(total_experts):
+        broker.register_expert()
+
+    tasks = []
+    for idx in range(total_experts):
+        task = asyncio.create_task(_run_single_expert_async(
+            idx=idx,
+            model=expert_models[idx],
+            server_tools=server_tools,
+            client_tool_names=client_tool_names,
+            all_tools=all_expert_tools,
+            broker=broker,
+            total_experts=total_experts,
+            language=language,
+            expert_full_history=expert_full_history,
+            cross_turn_history=cross_turn_history,
+            user_messages=user_messages,
+            max_context_tokens=expert_max_context_tokens[idx],
+            llm_timeout=llm_timeout,
+            additional_system_prompt=additional_system_prompt,
+        ))
+        tasks.append(task)
+
+    parallel_responses: dict[str, str] = {}
+
+    # Store session for potential resume
+    _parallel_session_cache[session_id] = {
+        "broker": broker,
+        "tasks": tasks,
+        "parallel_responses": parallel_responses,
+    }
+
+    try:
+        async for event in _monitor_parallel_experts(tasks, broker, parallel_responses, session_id):
+            yield event
+    except Exception:
+        _parallel_session_cache.pop(session_id, None)
+        raise
+
+
+async def _resume_parallel_experts(
+    session_id: str,
+    tool_results: list[dict],
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Resume parallel experts after frontend returns batched client tool results."""
+    session = _parallel_session_cache.get(session_id)
+    if not session:
+        raise RuntimeError(f"Parallel session '{session_id}' not found (server restart?)")
+
+    broker: ToolBroker = session["broker"]
+    tasks: list[asyncio.Task] = session["tasks"]
+    parallel_responses: dict[str, str] = session["parallel_responses"]
+
+    # Resolve all pending futures
+    broker.resolve_results(tool_results)
+
+    try:
+        async for event in _monitor_parallel_experts(tasks, broker, parallel_responses, session_id):
+            yield event
+    except Exception:
+        _parallel_session_cache.pop(session_id, None)
+        raise
+
+
 # --- 8. Exported Functions (API) ---
 
 _session_config_cache = {}
@@ -1413,6 +1787,7 @@ async def stream_multiagent(
     legacy_mode: bool = False,
     formatter_model: BaseChatModel | None = None,
     expert_full_history: bool = False,
+    use_expert_parallelization: bool = True,
 ) -> AsyncGenerator[dict[str, Any], None]:
 
     # Log model configuration at entry point
@@ -1495,6 +1870,76 @@ async def stream_multiagent(
         | {t.name for t in supervisor_server_tools} | {t.name for t in supervisor_client_tools}
     )
 
+    # --- Async parallel expert execution (outside LangGraph) ---
+    if mode == "parallel" and use_expert_parallelization:
+        print(f"[stream_multiagent] Using TRUE parallel expert execution (ToolBroker)")
+
+        lc_messages = to_langchain_messages(messages)
+        user_messages = [m for m in lc_messages if isinstance(m, HumanMessage)]
+        all_expert_tools = (expert_server_tools or []) + (expert_client_tools or [])
+        client_tool_names = {t.name for t in (expert_client_tools or [])}
+
+        try:
+            parallel_responses = None
+            async for event in _run_parallel_experts(
+                expert_models=expert_models,
+                server_tools=expert_server_tools or [],
+                client_tool_names=client_tool_names,
+                all_expert_tools=all_expert_tools,
+                total_experts=len(expert_models),
+                language=language,
+                expert_full_history=expert_full_history,
+                cross_turn_history=cross_turn_history,
+                user_messages=user_messages,
+                expert_max_context_tokens=expert_max_context_tokens or [128000] * len(expert_models),
+                llm_timeout=llm_timeout,
+                session_id=thread_id,
+                additional_system_prompt=additional_system_prompt or "",
+            ):
+                if event["event"] == "_experts_done":
+                    parallel_responses = event["data"]["parallel_responses"]
+                elif event["event"] == "_need_resume":
+                    # Client tools needed — SSE stream must end so frontend can execute
+                    # Expert tasks stay alive in _parallel_session_cache
+                    # Store synthesizer context for resume_multiagent
+                    if thread_id in _parallel_session_cache:
+                        _parallel_session_cache[thread_id].update({
+                            "initial_state": initial_state,
+                            "conversation_id": conversation_id,
+                            "conversation_store": conversation_store,
+                            "turn": turn,
+                            "use_store": use_store,
+                            "all_tool_names": all_tool_names,
+                            "mode": mode,
+                        })
+                    _session_config_cache[thread_id] = config
+                    _session_graph_cache[thread_id] = active_graph
+                    return
+                else:
+                    yield event
+
+            if parallel_responses is None:
+                raise RuntimeError("Parallel expert execution finished without producing responses")
+
+            # Clean up parallel session cache
+            _parallel_session_cache.pop(thread_id, None)
+
+            # Inject pre-computed results into initial state for synthesizer
+            initial_state["parallel_responses"] = parallel_responses
+            initial_state["current_expert_index"] = len(expert_models)
+            print(f"[stream_multiagent] Parallel experts done: {list(parallel_responses.keys())}. Proceeding to synthesizer.")
+
+        except Exception as e:
+            _parallel_session_cache.pop(thread_id, None)
+            if use_store:
+                conversation_store.rollback_response(conversation_id, turn)
+                conversation_store.unregister_thread(thread_id)
+            yield {"event": "error", "data": {"error": str(e)}}
+            _session_config_cache.pop(thread_id, None)
+            _session_graph_cache.pop(thread_id, None)
+            return
+
+    # --- LangGraph execution (sequential experts or synthesizer-only after parallel) ---
     try:
         event_stream = active_graph.astream_events(initial_state, config=config, version="v2")
 
@@ -1576,6 +2021,95 @@ async def resume_multiagent(
     conversation_store: Any = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
 
+    # --- Check for parallel expert session first ---
+    parallel_session = _parallel_session_cache.get(multiagent_session_id)
+    if parallel_session:
+        print(f"[resume_multiagent] Resuming parallel expert session {multiagent_session_id}")
+        try:
+            parallel_responses = None
+            async for event in _resume_parallel_experts(multiagent_session_id, tool_results):
+                if event["event"] == "_experts_done":
+                    parallel_responses = event["data"]["parallel_responses"]
+                elif event["event"] == "_need_resume":
+                    # More client tools needed — store updated context and return
+                    return
+                else:
+                    yield event
+
+            if parallel_responses is None:
+                raise RuntimeError("Parallel expert resume finished without producing responses")
+
+            # All experts done — transition to synthesizer via LangGraph
+            ctx = _parallel_session_cache.pop(multiagent_session_id, {})
+            initial_state = ctx.get("initial_state", {})
+            initial_state["parallel_responses"] = parallel_responses
+            initial_state["current_expert_index"] = len(
+                _session_config_cache.get(multiagent_session_id, {})
+                .get("configurable", {})
+                .get("expert_models", [])
+            )
+            conv_id = ctx.get("conversation_id")
+            conv_store = ctx.get("conversation_store")
+            turn = ctx.get("turn")
+            use_store = ctx.get("use_store", False)
+            all_tool_names = ctx.get("all_tool_names", set())
+            mode = ctx.get("mode", "parallel")
+
+            print(f"[resume_multiagent] Parallel experts done: {list(parallel_responses.keys())}. Running synthesizer.")
+
+            # Run synthesizer via LangGraph (route_start will skip to synthesizer)
+            config = _session_config_cache.get(multiagent_session_id)
+            active_graph = _session_graph_cache.get(multiagent_session_id)
+            if not config or not active_graph:
+                raise RuntimeError("LangGraph session context lost after parallel experts")
+
+            event_stream = active_graph.astream_events(initial_state, config=config, version="v2")
+            async for sse_event in _process_multiagent_stream(event_stream, all_tool_names):
+                yield sse_event
+
+            # Check for synthesizer interrupt (client tools)
+            snapshot = active_graph.get_state(config)
+            if snapshot.tasks and snapshot.tasks[0].interrupts:
+                interrupt_data = snapshot.tasks[0].interrupts[0].value
+                yield {
+                    "event": "tool_call",
+                    "data": {"name": interrupt_data["name"], "args": interrupt_data["args"], "speaker": "Synthesizer"}
+                }
+                yield {
+                    "event": "client_tool_call",
+                    "data": {
+                        "session_id": multiagent_session_id,
+                        "tool_calls": [{"name": interrupt_data["name"], "args": interrupt_data["args"], "call_id": interrupt_data["id"]}]
+                    }
+                }
+            else:
+                # Synthesizer done — store results
+                if use_store and conv_store:
+                    persona = "synthesizer" if mode == "parallel" else "overseer"
+                    tool_msgs = _extract_consigliere_tool_interactions(config, mode, active_graph)
+                    if tool_msgs:
+                        conv_store.add_consigliere_messages(conv_id, turn, persona, mode, tool_msgs)
+                    public_response = _extract_multiagent_public_response(config, mode, active_graph)
+                    if public_response:
+                        conv_store.add_public_response(conv_id, turn, persona, mode, public_response)
+                    conv_store.unregister_thread(multiagent_session_id)
+                yield {"event": "done", "data": {"finish_reason": "stop"}}
+                _session_config_cache.pop(multiagent_session_id, None)
+                _session_graph_cache.pop(multiagent_session_id, None)
+
+        except Exception as e:
+            _parallel_session_cache.pop(multiagent_session_id, None)
+            if conversation_store:
+                mapping = conversation_store.lookup_thread(multiagent_session_id)
+                if mapping:
+                    conversation_store.rollback_response(mapping.conversation_id, mapping.turn)
+                    conversation_store.unregister_thread(multiagent_session_id)
+            yield {"event": "error", "data": {"error": str(e)}}
+            _session_config_cache.pop(multiagent_session_id, None)
+            _session_graph_cache.pop(multiagent_session_id, None)
+        return
+
+    # --- Standard LangGraph resume (sequential experts, synthesizer, or collaborative) ---
     config = _session_config_cache.get(multiagent_session_id)
     active_graph = _session_graph_cache.get(multiagent_session_id)
     if not config or not active_graph:

@@ -5,38 +5,6 @@
       {{ t('multiagentCredentialsInfo') }}
     </div>
 
-    <!-- Operating Mode -->
-    <SettingCard>
-      <div class="flex flex-col gap-2">
-        <label class="text-sm">{{ t('multiagentOperatingModeLabel') }}</label>
-        <select v-model="config.operatingMode" class="rounded-md border px-3 py-2">
-          <option value="combined">{{ t('multiagentOperatingModeCombined') }}</option>
-          <option value="legacy">{{ t('multiagentOperatingModeLegacy') }}</option>
-        </select>
-        <p class="text-xs text-gray-500">{{ t('multiagentOperatingModeHelp') }}</p>
-      </div>
-    </SettingCard>
-
-    <!-- Max Rounds -->
-    <SettingCard>
-      <CustomInput
-        v-model.number="config.maxRounds"
-        :title="t('multiagentMaxRoundsLabel')"
-        type="number"
-        :min="1"
-        :max="10"
-      />
-    </SettingCard>
-
-    <!-- Expert Full History -->
-    <SettingCard>
-      <label class="flex items-center gap-2 text-sm">
-        <input v-model="config.expertFullHistory" type="checkbox" class="rounded" />
-        {{ t('multiagentExpertFullHistoryLabel') }}
-      </label>
-      <p class="mt-1 text-xs text-gray-500">{{ t('multiagentExpertFullHistoryHelp') }}</p>
-    </SettingCard>
-
     <!-- Experts Section -->
     <div class="mt-4 flex items-center justify-between">
       <h3 class="text-base font-semibold">{{ t('multiagentExpertsLabel') }}</h3>
@@ -52,13 +20,7 @@
         <div class="flex flex-col gap-2">
           <label class="text-sm">{{ t('apiProvider') }}</label>
           <select v-model="expert.provider" class="rounded-md border px-3 py-2">
-            <option value="official">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="gemini">Google Gemini</option>
-            <option value="groq">Groq</option>
-            <option value="ollama">Ollama</option>
-            <option value="lmstudio">LM Studio</option>
-            <option value="azure">Azure</option>
+            <option v-for="(internalId, displayName) in availableAPIs" :key="internalId" :value="internalId">{{ displayName }}</option>
           </select>
         </div>
 
@@ -94,13 +56,7 @@
         <div class="flex flex-col gap-2">
           <label class="text-sm">{{ t('apiProvider') }}</label>
           <select v-model="config.overseer.provider" class="rounded-md border px-3 py-2">
-            <option value="official">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="gemini">Google Gemini</option>
-            <option value="groq">Groq</option>
-            <option value="ollama">Ollama</option>
-            <option value="lmstudio">LM Studio</option>
-            <option value="azure">Azure</option>
+            <option v-for="(internalId, displayName) in availableAPIs" :key="internalId" :value="internalId">{{ displayName }}</option>
           </select>
         </div>
 
@@ -137,13 +93,7 @@
           <div class="flex flex-col gap-2">
             <label class="text-sm">{{ t('apiProvider') }}</label>
             <select v-model="formatterProvider" class="rounded-md border px-3 py-2">
-              <option value="official">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-              <option value="gemini">Google Gemini</option>
-              <option value="groq">Groq</option>
-              <option value="ollama">Ollama</option>
-              <option value="lmstudio">LM Studio</option>
-              <option value="azure">Azure</option>
+              <option v-for="(internalId, displayName) in availableAPIs" :key="internalId" :value="internalId">{{ displayName }}</option>
             </select>
           </div>
 
@@ -171,6 +121,50 @@
         </div>
       </SettingCard>
     </template>
+
+    <!-- Advanced Options -->
+    <h3 class="mt-6 text-base font-semibold">Advanced Options</h3>
+
+    <!-- Operating Mode -->
+    <SettingCard>
+      <div class="flex flex-col gap-2">
+        <label class="text-sm">{{ t('multiagentOperatingModeLabel') }}</label>
+        <select v-model="config.operatingMode" class="rounded-md border px-3 py-2">
+          <option value="combined">{{ t('multiagentOperatingModeCombined') }}</option>
+          <option value="legacy">{{ t('multiagentOperatingModeLegacy') }}</option>
+        </select>
+        <p class="text-xs text-gray-500">{{ t('multiagentOperatingModeHelp') }}</p>
+      </div>
+    </SettingCard>
+
+    <!-- Max Rounds -->
+    <SettingCard>
+      <CustomInput
+        v-model.number="config.maxRounds"
+        :title="t('multiagentMaxRoundsLabel')"
+        type="number"
+        :min="1"
+        :max="10"
+      />
+    </SettingCard>
+
+    <!-- Expert Full History -->
+    <SettingCard>
+      <label class="flex items-center gap-2 text-sm">
+        <input v-model="config.expertFullHistory" type="checkbox" class="rounded" />
+        {{ t('multiagentExpertFullHistoryLabel') }}
+      </label>
+      <p class="mt-1 text-xs text-gray-500">{{ t('multiagentExpertFullHistoryHelp') }}</p>
+    </SettingCard>
+
+    <!-- Expert Parallelization -->
+    <SettingCard>
+      <label class="flex items-center gap-2 text-sm">
+        <input v-model="config.useExpertParallelization" type="checkbox" class="rounded" />
+        {{ t('useExpertParallelizationLabel') }}
+      </label>
+      <p class="mt-1 text-xs text-gray-500">{{ t('useExpertParallelizationPlaceholder') }}</p>
+    </SettingCard>
   </div>
 </template>
 
@@ -180,6 +174,7 @@ import { useI18n } from 'vue-i18n'
 
 import type { MultiAgentConfig, supportedProviders } from '@/api/types'
 import {
+  availableAPIs,
   availableModels,
   availableModelsForAnthropic,
   availableModelsForAzure,

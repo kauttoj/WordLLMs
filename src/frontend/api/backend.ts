@@ -738,6 +738,7 @@ interface MultiAgentRequestBody {
   max_rounds: number
   use_expert_memory: boolean
   expert_full_history?: boolean
+  use_expert_parallelization?: boolean
   conversation_id?: string
   experts: any[]
   overseer: any
@@ -842,6 +843,7 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
     max_rounds: options.maxRounds ?? 3,
     use_expert_memory: options.useExpertMemory ?? true,
     expert_full_history: options.expertFullHistory ?? false,
+    use_expert_parallelization: options.useExpertParallelization ?? true,
     experts: expertConfigs,
     overseer: overseerConfig,
     synthesizer: synthesizerConfig,

@@ -8,6 +8,18 @@ from pathlib import Path
 from markitdown import MarkItDown, StreamInfo
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+PLAIN_TEXT_EXTENSIONS = {
+    ".txt", ".log", ".md", ".csv", ".tsv", ".json", ".jsonl",
+    ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
+    ".sh", ".bash", ".zsh", ".bat", ".cmd", ".ps1",
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".vue", ".svelte",
+    ".html", ".htm", ".css", ".scss", ".less", ".sass",
+    ".java", ".kt", ".scala", ".c", ".cpp", ".h", ".hpp", ".cs",
+    ".go", ".rs", ".rb", ".php", ".swift", ".m", ".r",
+    ".sql", ".graphql", ".proto",
+    ".env", ".gitignore", ".dockerignore", ".editorconfig",
+    ".dockerfile", ".makefile",
+}
 
 # Single stateless converter instance — just a registry of format handlers.
 _converter = MarkItDown(enable_plugins=False)
@@ -44,15 +56,25 @@ def parse_file(filename: str, data_b64: str, char_limit: int = 0) -> str:
     if ext in IMAGE_EXTENSIONS:
         raise ValueError(f"Image files should not be parsed as text: {filename}")
 
-    try:
-        result = _converter.convert_stream(
-            io.BytesIO(raw),
-            stream_info=StreamInfo(extension=ext, filename=filename),
-        )
-    except Exception as e:
-        raise ValueError(f"Failed to parse '{filename}': {e}") from e
-
-    text = result.text_content
+    # For known plain-text formats, decode directly to avoid MarkItDown ASCII issues.
+    if ext in PLAIN_TEXT_EXTENSIONS or ext.lstrip(".") in PLAIN_TEXT_EXTENSIONS:
+        for encoding in ("utf-8", "utf-8-sig", "latin-1"):
+            try:
+                text = raw.decode(encoding)
+                break
+            except (UnicodeDecodeError, ValueError):
+                continue
+        else:
+            raise ValueError(f"Failed to decode '{filename}' as text (tried utf-8, utf-8-sig, latin-1)")
+    else:
+        try:
+            result = _converter.convert_stream(
+                io.BytesIO(raw),
+                stream_info=StreamInfo(extension=ext, filename=filename),
+            )
+        except Exception as e:
+            raise ValueError(f"Failed to parse '{filename}': {e}") from e
+        text = result.text_content
 
     if char_limit > 0 and len(text) > char_limit:
         text = text[:char_limit] + f"\n\n[Content truncated at {char_limit} characters]"

@@ -26,7 +26,17 @@
       "Bash(curl -s -X POST http://localhost:1234/v1/chat/completions -H \"Content-Type: application/json\" -d '{\"\"model\"\": \"\"openai/gpt-oss-20b\"\", \"\"messages\"\": [{\"\"role\"\": \"\"user\"\", \"\"content\"\": \"\"Say hello in one word\"\"}], \"\"max_tokens\"\": 10}')",
       "Bash(node -e \"const fs=require\\(''fs''\\); const j=JSON.parse\\(fs.readFileSync\\(''src/frontend/i18n/locales/en.json'',''utf8''\\)\\); const keys=Object.keys\\(j\\); const sorted=[...keys].sort\\(\\); const ok=keys.every\\(\\(k,i\\)=>k===sorted[i]\\); console.log\\(ok?''Keys are sorted'':''Keys NOT sorted''\\); if\\(!ok\\){for\\(let i=0;i<keys.length;i++\\){if\\(keys[i]!==sorted[i]\\){console.log\\(''First mismatch at'',i,keys[i],''vs'',sorted[i]\\);break}}}\")",
       "Bash(python -c \"import json; j=json.load\\(open\\(''src/frontend/i18n/locales/en.json''\\)\\); keys=list\\(j.keys\\(\\)\\); s=sorted\\(keys\\); print\\(''sorted'' if keys==s else f''NOT sorted: first mismatch {next\\(\\(i,k,s[i]\\) for i,k in enumerate\\(keys\\) if k!=s[i]\\)}''\\)\")",
-      "Bash(xargs grep -l \"comment\\\\|issue\\\\|bug\")"
+      "Bash(xargs grep -l \"comment\\\\|issue\\\\|bug\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''src/backend/agents/chat_multiagent.py''\\).read\\(\\)\\); print\\(''Syntax OK''\\)\")",
+      "Bash(python -c \"import src.backend.agents.chat_multiagent; print\\(''OK''\\)\")",
+      "Bash(python -c \"from src.backend.agents.chat_multiagent import PARALLEL_EXPERT_MODE, ToolBroker, _parallel_session_cache; print\\(''PARALLEL_EXPERT_MODE ='', PARALLEL_EXPERT_MODE\\); print\\(''ToolBroker:'', ToolBroker\\); print\\(''Session cache type:'', type\\(_parallel_session_cache\\)\\)\")",
+      "Bash(python -c \"from src.backend.agents.chat_multiagent import PARALLEL_EXPERT_MODE, ToolBroker; print\\(''OK''\\)\")",
+      "Bash(python -c \"from src.backend.agents.chat_multiagent import stream_multiagent, ToolBroker; import inspect; sig = inspect.signature\\(stream_multiagent\\); print\\(''use_expert_parallelization'' in sig.parameters\\); print\\(''OK''\\)\")",
+      "Bash(python -c \"from src.backend.schemas import MultiAgentRequest; print\\(''use_expert_parallelization'' in MultiAgentRequest.model_fields\\); print\\(''OK''\\)\")",
+      "Bash(npx vue-tsc --noEmit)",
+      "Bash(python -c \"from src.backend.agents.chat_multiagent import stream_multiagent; from src.backend.schemas import MultiAgentRequest; print\\(''OK''\\)\")",
+      "Bash(ls -la /c/code/WordLLMs/*.cjs /c/code/WordLLMs/.*.*)",
+      "Bash(wc -l /c/code/WordLLMs/src/backend/prompts/system_prompts.py /c/code/WordLLMs/src/backend/agents/chat_multiagent.py /c/code/WordLLMs/src/backend/providers/*.py /c/code/WordLLMs/src/backend/agents/__init__.py /c/code/WordLLMs/src/backend/prompts/__init__.py /c/code/WordLLMs/src/backend/providers/__init__.py /c/code/WordLLMs/src/backend/tools/word_tools.py)"
     ]
   }
 }

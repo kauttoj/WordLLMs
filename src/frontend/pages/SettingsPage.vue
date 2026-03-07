@@ -209,14 +209,14 @@
                 :placeholder="
                   settingPreset.api.optionObj
                     .find(option => option.value === settingsProvider)
-                    ?.label.replace('official', 'OpenAI') || settingsProvider
+                    ?.label || settingsProvider
                 "
               >
                 <template #item="{ item }">
                   {{
                     settingPreset.api.optionObj
                       .find(option => option.value === item)
-                      ?.label.replace('official', 'OpenAI') || item
+                      ?.label || item
                   }}
                 </template>
               </SingleSelect>
@@ -224,7 +224,7 @@
 
             <!-- Dynamic API Configuration -->
             <SettingSection
-              v-for="platform in Object.keys(availableAPIs)"
+              v-for="platform in Object.values(availableAPIs)"
               v-show="settingsProvider === platform"
               :key="platform"
             >

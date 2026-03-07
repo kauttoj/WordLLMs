@@ -7,11 +7,26 @@ describe strategy and workflow, not duplicate tool listings.
 
 from typing import Literal
 import random
+import re
 
 try:
     from ..tools import WRITE_WORD_TOOLS
 except ImportError:
     from tools import WRITE_WORD_TOOLS
+
+
+def inject_behavior(prompt: str, behavior: str | None) -> str:
+    """Insert a # Behavior section after the identity paragraph, before the first heading.
+
+    If the prompt contains no markdown heading, appends at the end.
+    Returns the prompt unchanged when behavior is empty/None.
+    """
+    if not behavior:
+        return prompt
+    match = re.search(r'\n# ', prompt)
+    if match:
+        return prompt[:match.start()] + f"\n\n# Behavior\n{behavior}" + prompt[match.start():]
+    return prompt + f"\n\n# Behavior\n{behavior}"
 
 
 def _first_sentence(text: str) -> str:

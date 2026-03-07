@@ -212,6 +212,8 @@
   "translate": "Translate",
   "userPrompt": "User Prompt",
   "userPromptPlaceholder": "Please input user prompt, this prompt will be prepended to the input box content",
+  "useExpertParallelizationLabel": "Use Expert Parallelization",
+  "useExpertParallelizationPlaceholder": "Run multiagent experts concurrently instead of sequentially (faster, but may cause race conditions with selection tools)",
   "useWordFormattingLabel": "Word Formatting",
   "wordTool_appendText": "Append Text",
   "wordTool_appendText_desc": "Append text to the end of the document.",

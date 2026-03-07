@@ -24,12 +24,6 @@ function initializeSettings(): Record<string, SettingValue> {
     }
   }
 
-  // Special case for legacy support
-  if (settings.api === 'palm') {
-    settings.api = 'gemini'
-    localStorage.setItem(localStorageKey.api, 'gemini')
-  }
-
   // Auto-select migrated Azure deployment
   if (
     !settings.azureModelSelect &&

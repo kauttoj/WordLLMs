@@ -172,6 +172,7 @@ class MultiAgentRequest(BaseModel):
     max_rounds: int = Field(default=3, ge=1, le=10)
     use_expert_memory: bool = Field(default=True)
     expert_full_history: bool = Field(default=False)  # Give experts cross-turn conversation history
+    use_expert_parallelization: bool = Field(default=True)  # True = async parallel, False = sequential LangGraph
     conversation_id: str | None = None  # Enables unified cross-mode conversation history
 
     experts: list[MultiAgentExpertConfig] = Field(min_length=2, max_length=4)

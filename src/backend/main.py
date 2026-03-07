@@ -21,7 +21,7 @@ from .schemas import (
 from .file_processing import format_attachments_for_message
 from .providers import create_model
 from .tools import get_tools, ALL_TOOLS
-from .agents import stream_chat, stream_agent, resume_agent, get_session_info
+from .agents import stream_chat, stream_agent, resume_agent
 from .agents.chat_multiagent import stream_multiagent, resume_multiagent
 from .conversation_store import ConversationStore, DEFAULT_DB_PATH, _DATA_DIR
 
@@ -325,6 +325,7 @@ async def multiagent_completion(request: MultiAgentRequest):
                 legacy_mode=(request.operating_mode == "legacy"),
                 formatter_model=formatter_model,
                 expert_full_history=request.expert_full_history,
+                use_expert_parallelization=request.use_expert_parallelization,
             ):
                 yield {"event": event["event"], "data": json.dumps(event["data"])}
 

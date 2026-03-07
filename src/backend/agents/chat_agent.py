@@ -2,7 +2,7 @@ import sys
 import re
 import uuid
 import json
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Annotated, Callable, Literal, List, TypedDict, Union
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Annotated, Callable, Literal, List, TypedDict
 
 if TYPE_CHECKING:
     from ..conversation_store import ConversationStore
@@ -369,7 +369,7 @@ async def stream_chat(
     """
     print(f"[stream_chat] Starting with model: {type(model).__name__}, filter_thinking: {filter_thinking}, messages: {len(messages)}, language: {language}")
 
-    from ..prompts.system_prompts import generate_chat_system_prompt
+    from ..prompts.system_prompts import generate_chat_system_prompt, inject_behavior
 
     use_store = bool(conversation_id and conversation_store)
     turn = None
@@ -392,9 +392,9 @@ async def stream_chat(
         else:
             system_content = conversation_store.get_system_prompt(conversation_id)
 
-        # Append additional behavioral instructions if provided
-        if additional_system_prompt and system_content and isinstance(system_content, str):
-            system_content += "\n\n# Additional behavior instructions\n" + additional_system_prompt
+        # Inject behavioral instructions after identity paragraph
+        if system_content and isinstance(system_content, str):
+            system_content = inject_behavior(system_content, additional_system_prompt)
 
         # Build: system prompt + consigliere history + new user message
         lc_messages = []
@@ -551,7 +551,7 @@ async def stream_agent(
     Agent is part of the consigliere persona (same history as chat,
     overseer, synthesizer).
     """
-    from ..prompts.system_prompts import generate_agent_system_prompt
+    from ..prompts.system_prompts import generate_agent_system_prompt, inject_behavior
 
     # Log model info at entry point
     model_name = get_model_name(model)
@@ -584,9 +584,9 @@ async def stream_agent(
         else:
             system_content = conversation_store.get_system_prompt(conversation_id)
 
-        # Append additional behavioral instructions if provided
-        if additional_system_prompt and system_content and isinstance(system_content, str):
-            system_content += "\n\n# Additional behavior instructions\n" + additional_system_prompt
+        # Inject behavioral instructions after identity paragraph
+        if system_content and isinstance(system_content, str):
+            system_content = inject_behavior(system_content, additional_system_prompt)
 
         # Build message list: system prompt + consigliere history + new user message
         lc_messages = []

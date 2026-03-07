@@ -9,7 +9,7 @@
   />
   <div
     v-show="!showCheckpoints"
-    class="itemse-center relative flex h-full w-full flex-col justify-center bg-bg-secondary p-1"
+    class="items-center relative flex h-full w-full flex-col justify-center bg-bg-secondary p-1"
   >
     <div class="relative flex h-full w-full flex-col gap-1 rounded-md">
       <!-- Header -->
@@ -378,7 +378,7 @@
               class="h-7 max-w-full min-w-0 cursor-pointer rounded-md border border-border bg-surface p-1 text-xs text-secondary hover:border-accent focus:outline-none disabled:cursor-not-allowed disabled:bg-secondary"
             >
               <option v-for="item in settingPreset.api.optionObj" :key="item.value" :value="item.value">
-                {{ item.label.replace('official', 'OpenAI') }}
+                {{ item.label }}
               </option>
             </select>
             <select
@@ -1278,7 +1278,7 @@ async function processChat(
   if (hasCustomPrompt) {
     let systemContent = customSystemPrompt.value || systemMessage || ''
     if (additionalSystemPrompt.value) {
-      systemContent += '\n\n# Additional behavior instructions\n' + additionalSystemPrompt.value
+      systemContent = '# Behavior\n' + additionalSystemPrompt.value + '\n\n' + systemContent
     }
     finalMessages = [new SystemMessage(systemContent), userMessage]
     languageParam = undefined // Don't send language, backend uses custom prompt
@@ -1455,6 +1455,7 @@ async function processChat(
       maxRounds: multiAgentConfig.value?.maxRounds ?? 3,
       useExpertMemory: true,
       expertFullHistory: multiAgentConfig.value?.expertFullHistory ?? false,
+      useExpertParallelization: multiAgentConfig.value?.useExpertParallelization ?? true,
       experts,
       overseer: overseerConfig,
       synthesizer: synthesizerConfig,
@@ -1984,8 +1985,8 @@ const getBotStyles = (botType: string, botName?: string) => {
   // Consigliere styling: overseer, synthesizer, and fallback all use neutral grey
   // (only experts get distinct colors — consigliere is one persistent persona)
   const consigliereStyle = {
-    header: 'bg-secondary/50 text-secondary border border-border-secondary',
-    bubble: 'border-border-secondary',
+    header: 'bg-bg-secondary text-secondary border border-border-secondary',
+    bubble: 'border-border-secondary bg-bg-tertiary',
   }
 
   if (botType === 'overseer' || botType === 'synthesizer') {

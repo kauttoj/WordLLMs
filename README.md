@@ -163,35 +163,40 @@ WordLLMs is essentially a "mini" website inside Word, Word only presents it. As 
 
    ```
    docker pull kauttoj/wordllms
-   docker run --name wordllms -p 3000:8000 -v "C:\Users\YourName\WordLLMs:/app/data" kauttoj/wordllms
+   docker run -d --name wordllms -p 3000:8000 -v "C:\Users\YourName\WordLLMs:/app/data" kauttoj/wordllms
    ```
 
    Replace `C:\Users\YourName\WordLLMs` with the folder you chose in step 1. Keep the `:/app/data` part exactly as shown — that is the path inside the container and must not be changed.
+   Now, the app should be running in the background. You should see this in the Docker:
+   ![Image](https://github.com/kauttoj/WordLLMs/blob/master/public/docker1.png)
 
-   Later, when you restart your app, run
+   Later, when you restart your app, click run in Docker
+   ![Image](https://github.com/kauttoj/WordLLMs/blob/master/public/docker2.png)
+
+   Or run this command in console:
    
    ```
    docker start wordllms
    ```
 
-   which restart the old container without creating a new one. You can also start the image from Docker Desktop by clicking the image. You can learn more at https://www.docker.com/blog/getting-started-with-docker-desktop
+   which restarts the old container without creating a new one. You can learn more at https://www.docker.com/blog/getting-started-with-docker-desktop
 
-   How to update new version? First stop (if not stopped) and remove the container:
+   How to update new version? First stop (if not stopped) and remove the container from Docker (delete button) or with console:
 
    ```
    docker stop wordllms 
    docker rm wordllms
    ```
    
-   Then repeat those same two pull and run commands.
+   Then repeat those same two pull and run commands as above.
 
-   > **Why this matters**: Your conversation history is stored in a file on your PC. The `-v` flag is how Docker links your chosen Windows folder to the app running inside the container. Without it, all conversations are permanently lost every time the container stops. The app's file browser can only access folders that were linked this way at startup — you cannot change the folder later from inside the app.
+   > **Note**: Your conversation history is stored in a file on your PC. The `-v` flag is how Docker links your chosen Windows folder to the app running inside the container. Without it, all conversations are permanently lost every time the container stops. The app's file browser can only access folders that were linked this way at startup — you cannot change the folder later from inside the app.
 
 3. Open WordLLMs in Word, go to **Settings** and set **History Database Path** to:
    ```
    /app/data/conversations.db
    ```
-   Click the folder icon to browse existing `.db` files, or type the path directly. This path always uses the `/app/data` form regardless of what Windows folder you chose — Docker translates it automatically.
+   or any other filename you prefer. Click the folder icon to browse existing `.db` files, or type the path directly. This path always uses the `/app/data` form regardless of what Windows folder you chose — Docker translates it automatically.
 
 4. Download [manifest.xml](https://github.com/kauttoj/WordLLMs/blob/master/release/self-hosted/manifest.xml).
 5. [Optional: Edit `manifest.xml` if you changed the host port in the `docker run` command (e.g., if you used `-p 8080:8000`, replace `localhost:3000` with `localhost:8080`).]
