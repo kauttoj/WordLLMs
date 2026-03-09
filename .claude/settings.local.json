@@ -37,7 +37,11 @@
       "Bash(python -c \"from src.backend.agents.chat_multiagent import stream_multiagent; from src.backend.schemas import MultiAgentRequest; print\\(''OK''\\)\")",
       "Bash(ls -la /c/code/WordLLMs/*.cjs /c/code/WordLLMs/.*.*)",
       "Bash(wc -l /c/code/WordLLMs/src/backend/prompts/system_prompts.py /c/code/WordLLMs/src/backend/agents/chat_multiagent.py /c/code/WordLLMs/src/backend/providers/*.py /c/code/WordLLMs/src/backend/agents/__init__.py /c/code/WordLLMs/src/backend/prompts/__init__.py /c/code/WordLLMs/src/backend/providers/__init__.py /c/code/WordLLMs/src/backend/tools/word_tools.py)",
-      "Bash(xargs grep -n \"min\\\\|max\")"
+      "Bash(xargs grep -n \"min\\\\|max\")",
+      "WebFetch(domain:github.com)",
+      "Bash(python -c \"import mcp; print\\(mcp.__version__\\); print\\(dir\\(mcp\\)\\)\")",
+      "Bash(python -c \"import mcp; print\\(dir\\(mcp\\)\\); from mcp import ClientSession; print\\(''ClientSession OK''\\); from mcp.client.stdio import stdio_client; print\\(''stdio_client OK''\\)\")",
+      "Bash(python -c \"import fastmcp; print\\(dir\\(fastmcp\\)\\)\")"
     ]
   }
 }

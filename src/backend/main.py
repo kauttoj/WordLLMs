@@ -120,7 +120,7 @@ def sse_response(event_generator: AsyncGenerator[dict, None]) -> StreamingRespon
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "service": "word-gpt-plus-backend-langgraph"}
+    return {"status": "ok", "service": "wordllms-backend-langgraph"}
 
 @app.get("/api/tools")
 async def list_tools():

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Word GPT Plus is a Microsoft Word Add-in that integrates AI and LLM Agent capabilities directly into Microsoft Word. It supports multiple AI providers (OpenAI, Azure OpenAI, Google Gemini, Groq, Ollama, LMStudio) and provides both chat mode and agent mode with document manipulation tools.
+WordLLMs is a Microsoft Word Add-in that integrates AI and LLM Agent capabilities directly into Microsoft Word. It supports multiple AI providers (OpenAI, Azure OpenAI, Google Gemini, Groq, Ollama, LMStudio) and provides both chat mode and agent mode with document manipulation tools.
 
 ## Development Commands
 
