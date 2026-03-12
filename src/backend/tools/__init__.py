@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from typing import Any
 
 _THIS_DIR = Path(__file__).parent
 if str(_THIS_DIR) not in sys.path:
@@ -52,6 +53,7 @@ WRITE_WORD_TOOLS = {
     'format_text', 'clear_formatting', 'set_font_name',
     'insert_table', 'insert_list', 'insert_page_break', 'insert_image',
     'insert_bookmark', 'insert_content_control',
+    'insert_comment',
 }
 
 def _build_server_tools(tavily_api_key: str | None = None) -> dict:
@@ -62,8 +64,12 @@ def _build_server_tools(tavily_api_key: str | None = None) -> dict:
     return tools
 
 
-def get_tools(tool_names: list[str], tavily_api_key: str | None = None) -> tuple[list, list]:
+def get_tools(tool_names: list[str], tavily_api_key: str | None = None,
+              mcp_manager: "Any | None" = None) -> tuple[list, list]:
     """Get tool instances by name, separated by execution location.
+
+    MCP tools (names starting with 'mcp_') are resolved via the MCPClientManager
+    and treated as server-side tools.
 
     Returns:
         (server_tools, client_tools) — server tools run in Python,
@@ -75,7 +81,13 @@ def get_tools(tool_names: list[str], tavily_api_key: str | None = None) -> tuple
     server = []
     client = []
     for name in tool_names:
-        if name in all_server:
+        if name.startswith("mcp_"):
+            # MCP tool — resolve via manager
+            if not mcp_manager:
+                raise ValueError(f"MCP tool '{name}' requested but no MCP manager available")
+            mcp_tools = mcp_manager.get_langchain_tools([name])
+            server.extend(mcp_tools)
+        elif name in all_server:
             server.append(all_server[name])
         elif name in CLIENT_TOOLS:
             client.append(CLIENT_TOOLS[name])

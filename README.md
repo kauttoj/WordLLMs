@@ -96,6 +96,16 @@ The agent (and multi-agent) modes can manipulate your Word document through Offi
 
 **General** — Web search (Tavily), URL fetching, math calculations, date/time
 
+### MCP Server Integration
+
+Extend your agent with **any MCP (Model Context Protocol) server**. MCP is an open standard for connecting AI tools to external services. WordLLMs can connect to any MCP-compliant server and make its tools available to agents.
+
+- Connect to any MCP server by providing its startup command
+- Discovered tools are automatically available in agent and multi-agent modes
+- Enable/disable individual MCP tools per session
+- Auto-reconnects previously connected servers on backend startup
+- Example use cases: academic paper search (Mendeley), file system access, database queries, custom APIs
+
 ### Quick Actions
 
 One-click operations on selected text via customizable toolbar buttons, for example:
@@ -316,6 +326,82 @@ For each AI provider:
 - **Custom Base URL**: Use for OpenAI-compatible services (DeepSeek, local proxies, etc.)
 - **Agent Max Iterations**: Increase for complex multi-step tasks
 
+### Using MCP Servers
+
+WordLLMs supports the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) — an open standard that lets you connect external tools and data sources to your AI agents. Any MCP-compliant server works out of the box.
+
+#### How It Works
+
+The Python backend acts as an MCP client. When you add a server, the backend spawns it as a subprocess (via stdio transport), discovers its tools, and makes them available to agents as regular server-side tools. The browser never communicates with MCP servers directly — everything goes through the backend.
+
+#### Adding an MCP Server
+
+1. Go to **Settings** > **MCP** tab
+2. Fill in the server details:
+   - **Server name**: A friendly name (e.g., "Mendeley")
+   - **Command**: The executable to run (e.g., `python`, `npx`, `node`)
+   - **Arguments**: Command-line arguments, space-separated (e.g., `-m mendeley_mcp`)
+   - **Environment variables**: Any required env vars as `KEY=VALUE`, comma-separated
+3. Click **Add Server**
+4. Click **Connect** — the backend will start the server and discover its tools
+5. Discovered tools appear with checkboxes — all enabled by default
+6. Toggle individual tools on/off as needed
+
+#### Example: Mendeley Academic Papers
+
+[Mendeley MCP](https://github.com/pallaprolus/mendeley-mcp) gives your agent access to your Mendeley library and the Mendeley catalog of 100M+ academic papers.
+
+**Setup:**
+
+1. Install the Mendeley MCP server:
+   ```bash
+   pip install mendeley-mcp
+   ```
+
+2. Get your Mendeley API credentials:
+   - Go to [Mendeley Developer Portal](https://dev.mendeley.com/)
+   - Create an application to get your Client ID and Client Secret
+
+3. In WordLLMs, go to **Settings** > **MCP** tab and add:
+   - **Server name**: `Mendeley`
+   - **Command**: `python`
+   - **Arguments**: `-m mendeley_mcp`
+   - **Environment variables**: `MENDELEY_CLIENT_ID=your_id, MENDELEY_CLIENT_SECRET=your_secret`
+
+4. Click **Add Server**, then **Connect**
+
+**Available tools after connecting:**
+
+| Tool | Description |
+|------|-------------|
+| `mendeley_search_library` | Search your personal Mendeley library |
+| `mendeley_get_document` | Get full details of a document |
+| `mendeley_list_documents` | Browse documents with folder filtering |
+| `mendeley_list_folders` | Navigate your collections |
+| `mendeley_search_catalog` | Search 100M+ papers in Mendeley's catalog |
+| `mendeley_get_by_doi` | Find a paper by DOI |
+| `mendeley_add_document` | Add a paper to your library |
+
+**Example agent prompts:**
+
+- *"Search Mendeley for recent papers on transformer architectures and insert a summary table into my document"*
+- *"Find papers by Smith et al. on climate change and add their citations to the references section"*
+- *"Look up DOI 10.1234/example and insert the abstract after paragraph 2"*
+
+#### Finding More MCP Servers
+
+MCP is an open ecosystem. You can find servers for various services:
+
+- [MCP Server Registry](https://github.com/modelcontextprotocol/servers) — Official list of MCP servers
+- Any MCP-compliant server that supports stdio transport will work with WordLLMs
+
+#### Troubleshooting MCP
+
+- **Connection fails**: Make sure the server command is installed and accessible from your terminal. Try running the command manually first.
+- **No tools discovered**: The server may require authentication or configuration via environment variables. Check the server's documentation.
+- **Tool execution errors**: Errors from MCP tools are shown directly in the agent's response. Check the backend console for detailed logs (lines prefixed with `[MCP]`).
+- **Server disconnects**: If a server process dies, the next tool call will fail with an error. Click **Connect** again in Settings to restart it.
+
 ## Architecture
 
 ```mermaid
@@ -330,11 +416,15 @@ graph TD
         Agents["LangGraph Agents\nSingle Agent · Multi-Agent parallel/collab"]
         Providers["LangChain Providers\nOpenAI · Anthropic · Gemini · Azure\nGroq · Ollama · LM Studio"]
         Tools["Server Tools\nWeb search · URL fetch · Math · Date"]
+        MCP["MCP Client Manager\nConnects to external MCP servers\nDynamic tool discovery"]
         DB["SQLite Conversation Store\nUnified history across all modes"]
         Agents --> Providers
         Agents --> Tools
+        Agents --> MCP
         Agents --> DB
     end
+
+    MCP -- "stdio" --> MCPServers["MCP Servers\nMendeley · Filesystem · Custom"]
 ```
 
 ## Privacy & Security

@@ -54,9 +54,6 @@ MAX_EMPTY_RETRIES = 2
 # "parallel"   = true async parallel execution (experts run concurrently via asyncio)
 PARALLEL_EXPERT_MODE: Literal["sequential", "parallel"] = "parallel"
 
-# Max tool-call rounds per expert in parallel async mode (safety limit)
-MAX_ASYNC_TOOL_ROUNDS = 10
-
 
 class ToolBroker:
     """Batches client tool requests from parallel async experts for SSE interrupt.
@@ -745,6 +742,7 @@ async def _run_single_expert_async(
     user_messages: list[BaseMessage],
     max_context_tokens: int,
     llm_timeout: int,
+    max_tool_rounds: int,
     additional_system_prompt: str = "",
 ) -> tuple[str, str, list[dict]]:
     """Run a single expert asynchronously outside LangGraph.
@@ -793,7 +791,7 @@ async def _run_single_expert_async(
 
         server_tool_map = {t.name: t for t in server_tools}
 
-        for tool_round in range(MAX_ASYNC_TOOL_ROUNDS):
+        for tool_round in range(max_tool_rounds):
             print(f"[MultiAgent:AsyncExpert]   {expert_name} round {tool_round+1}")
             response = await ainvoke_with_timeout(
                 model_with_tools, messages, llm_timeout, label=expert_name
@@ -839,7 +837,7 @@ async def _run_single_expert_async(
             messages.append(response)
             messages.extend(tool_results)
 
-        raise TimeoutError(f"{expert_name} exceeded max tool rounds ({MAX_ASYNC_TOOL_ROUNDS})")
+        raise TimeoutError(f"{expert_name} exceeded max tool rounds ({max_tool_rounds})")
 
     except Exception:
         broker.expert_completed()
@@ -1685,6 +1683,7 @@ async def _run_parallel_experts(
     expert_max_context_tokens: list[int],
     llm_timeout: int,
     session_id: str,
+    max_tool_rounds: int,
     additional_system_prompt: str = "",
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Run all experts in parallel and yield SSE events.
@@ -1712,6 +1711,7 @@ async def _run_parallel_experts(
             user_messages=user_messages,
             max_context_tokens=expert_max_context_tokens[idx],
             llm_timeout=llm_timeout,
+            max_tool_rounds=max_tool_rounds,
             additional_system_prompt=additional_system_prompt,
         ))
         tasks.append(task)
@@ -1893,6 +1893,7 @@ async def stream_multiagent(
                 expert_max_context_tokens=expert_max_context_tokens,
                 llm_timeout=llm_timeout,
                 session_id=thread_id,
+                max_tool_rounds=recursion_limit,
                 additional_system_prompt=additional_system_prompt or "",
             ):
                 if event["event"] == "_experts_done":

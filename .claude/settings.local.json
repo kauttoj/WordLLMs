@@ -41,7 +41,13 @@
       "WebFetch(domain:github.com)",
       "Bash(python -c \"import mcp; print\\(mcp.__version__\\); print\\(dir\\(mcp\\)\\)\")",
       "Bash(python -c \"import mcp; print\\(dir\\(mcp\\)\\); from mcp import ClientSession; print\\(''ClientSession OK''\\); from mcp.client.stdio import stdio_client; print\\(''stdio_client OK''\\)\")",
-      "Bash(python -c \"import fastmcp; print\\(dir\\(fastmcp\\)\\)\")"
+      "Bash(python -c \"import fastmcp; print\\(dir\\(fastmcp\\)\\)\")",
+      "Bash(npx vite build)",
+      "Bash(python -c \"from src.backend.mcp.client_manager import MCPClientManager; print\\(''MCPClientManager OK''\\)\")",
+      "Bash(python -c \"from src.backend.tools import get_tools; print\\(''get_tools OK''\\)\")",
+      "Bash(python -c \"from src.backend.schemas import MCPServerAddRequest, MCPServerUpdateRequest; print\\(''Schemas OK''\\)\")",
+      "Bash(python -c \"from src.backend.main import app; print\\(''main.py OK''\\)\")",
+      "Bash(xargs grep -l \"systemPrompt\")"
     ]
   }
 }

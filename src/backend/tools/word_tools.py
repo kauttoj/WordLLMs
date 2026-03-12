@@ -328,6 +328,16 @@ def insert_content_control(title: str, tag: Optional[str] = None, appearance: st
     _client_only()
 
 
+@tool
+def insert_comment(comment: str) -> str:
+    """Add a comment to the currently selected text in the Word document. Requires text to be selected first.
+
+    Args:
+        comment: The comment text to add to the selected text.
+    """
+    _client_only()
+
+
 # --- Registry ---
 
 CLIENT_TOOLS = [
@@ -358,6 +368,7 @@ CLIENT_TOOLS = [
     insert_bookmark,
     go_to_bookmark,
     insert_content_control,
+    insert_comment,
 ]
 
 CLIENT_TOOL_NAMES: set[str] = {t.name for t in CLIENT_TOOLS}

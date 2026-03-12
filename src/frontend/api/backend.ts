@@ -200,6 +200,7 @@ function mapToolName(frontendName: string): string | null {
     findText: 'find_text',
     findAndSelectText: 'find_and_select_text',
     selectBetweenText: 'select_between_text',
+    insertComment: 'insert_comment',
   }
   return mapping[frontendName] ?? null
 }
@@ -233,6 +234,7 @@ const BACKEND_TO_FRONTEND_TOOL: Record<string, string> = {
   find_text: 'findText',
   find_and_select_text: 'findAndSelectText',
   select_between_text: 'selectBetweenText',
+  insert_comment: 'insertComment',
 }
 
 // ---------------------------------------------------------------------------
@@ -518,6 +520,10 @@ export async function streamAgentFromBackend(options: AgentOptions, language?: s
       }
     }
   }
+  // MCP tools are already in backend format — append directly
+  if (options.mcpTools) {
+    toolNames.push(...options.mcpTools)
+  }
 
   // Build the initial agent request
   const agentBody: AgentRequestBody = {
@@ -765,6 +771,7 @@ interface MultiAgentContinueRequestBody {
 function buildMultiAgentToolLists(
   enabledWordToolNames: string[],
   enabledGeneralToolNames: string[],
+  mcpToolNames: string[] = [],
 ): { expertTools: string[]; supervisorTools: string[] } {
   // Map enabled frontend names to backend names
   const enabledBackend = new Set(
@@ -814,9 +821,10 @@ function buildMultiAgentToolLists(
   // General tools (backend tool names)
   const generalTools = ['web_search', 'fetch_url', 'calculate', 'get_current_date'].filter(isEnabled)
 
+  // MCP tools are available to both experts and supervisors (external server tools)
   return {
-    expertTools: [...readOnlyWordTools, ...generalTools],
-    supervisorTools: [...readOnlyWordTools, ...writeWordTools, ...generalTools],
+    expertTools: [...readOnlyWordTools, ...generalTools, ...mcpToolNames],
+    supervisorTools: [...readOnlyWordTools, ...writeWordTools, ...generalTools, ...mcpToolNames],
   }
 }
 
@@ -833,6 +841,7 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
   const { expertTools, supervisorTools } = buildMultiAgentToolLists(
     options.enabledWordTools ?? [],
     options.enabledGeneralTools ?? [],
+    options.mcpTools ?? [],
   )
 
   // Build the initial multiagent request
@@ -1129,4 +1138,82 @@ export async function browseDirContents(
     throw new Error(data.detail ?? `Failed to list directory: ${response.status}`)
   }
   return response.json()
+}
+
+// ---------------------------------------------------------------------------
+// MCP Server Management
+// ---------------------------------------------------------------------------
+
+export interface McpToolInfo {
+  name: string // Full name: mcp_<server>_<tool>
+  original_name: string // Original MCP tool name
+  description: string
+}
+
+export interface McpServerInfo {
+  id: string
+  name: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+  auto_connect: boolean
+  status: 'connected' | 'disconnected'
+  tools: McpToolInfo[]
+}
+
+export async function fetchMcpServers(): Promise<McpServerInfo[]> {
+  const backendUrl = getBackendUrl()
+  const response = await fetch(`${backendUrl}/api/mcp/servers`)
+  if (!response.ok) throw new Error(`Failed to list MCP servers: ${response.status}`)
+  const data = await response.json()
+  return data.servers ?? []
+}
+
+export async function addMcpServer(config: {
+  name: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+}): Promise<McpServerInfo> {
+  const backendUrl = getBackendUrl()
+  const response = await fetch(`${backendUrl}/api/mcp/servers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Failed to add MCP server: ${response.status} ${text.substring(0, 200)}`)
+  }
+  const data = await response.json()
+  return data.server
+}
+
+export async function deleteMcpServer(serverId: string): Promise<void> {
+  const backendUrl = getBackendUrl()
+  const response = await fetch(`${backendUrl}/api/mcp/servers/${encodeURIComponent(serverId)}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) throw new Error(`Failed to delete MCP server: ${response.status}`)
+}
+
+export async function connectMcpServer(serverId: string): Promise<McpToolInfo[]> {
+  const backendUrl = getBackendUrl()
+  const response = await fetch(`${backendUrl}/api/mcp/servers/${encodeURIComponent(serverId)}/connect`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Failed to connect MCP server: ${response.status} ${text.substring(0, 200)}`)
+  }
+  const data = await response.json()
+  return data.tools ?? []
+}
+
+export async function disconnectMcpServer(serverId: string): Promise<void> {
+  const backendUrl = getBackendUrl()
+  const response = await fetch(`${backendUrl}/api/mcp/servers/${encodeURIComponent(serverId)}/disconnect`, {
+    method: 'POST',
+  })
+  if (!response.ok) throw new Error(`Failed to disconnect MCP server: ${response.status}`)
 }

@@ -584,7 +584,6 @@ const activeSystemPromptDisplayName = computed(() => {
   return systemPromptPresets.value.find(p => p.id === activeSystemPromptId.value)?.name || ''
 })
 
-const customSystemPrompt = ref<string>('')
 
 const allWordToolNames: WordToolName[] = [
   'getSelectedText',
@@ -614,6 +613,7 @@ const allWordToolNames: WordToolName[] = [
   'findText',
   'findAndSelectText',
   'selectBetweenText',
+  'insertComment',
 ]
 
 const allGeneralToolNames: GeneralToolName[] = ['webSearch', 'fetchWebContent', 'getCurrentDate', 'calculateMath']
@@ -621,6 +621,7 @@ const allGeneralToolNames: GeneralToolName[] = ['webSearch', 'fetchWebContent', 
 // Tool state
 const enabledWordTools = ref<WordToolName[]>(loadEnabledWordTools())
 const enabledGeneralTools = ref<GeneralToolName[]>(loadEnabledGeneralTools())
+const enabledMcpTools = ref<string[]>(loadEnabledMcpTools())
 
 function loadEnabledWordTools(): WordToolName[] {
   const stored = localStorage.getItem('enabledWordTools')
@@ -648,10 +649,19 @@ function loadEnabledGeneralTools(): GeneralToolName[] {
   return [...allGeneralToolNames]
 }
 
+function loadEnabledMcpTools(): string[] {
+  const stored = localStorage.getItem('enabledMcpTools')
+  if (stored) {
+    try { return JSON.parse(stored) } catch { return [] }
+  }
+  return []
+}
+
 // Reload settings when returning from Settings (keep-alive reactivation)
 onActivated(() => {
   enabledWordTools.value = loadEnabledWordTools()
   enabledGeneralTools.value = loadEnabledGeneralTools()
+  enabledMcpTools.value = loadEnabledMcpTools()
   quickActionSlots.value = getQuickActionSlots()
   systemPromptPresets.value = getSystemPromptPresets()
   resolveActiveSystemPrompt()
@@ -697,7 +707,6 @@ function onSystemPromptSelected() {
 
 async function applyQuickActionSlot(slot: QuickActionSlot) {
   const lang = settingForm.value.replyLanguage
-  customSystemPrompt.value = slot.systemPrompt.replace(/\$\{language\}/g, lang)
   userInput.value = slot.userPrompt.replace(/\$\{language\}/g, lang)
   await nextTick()
   adjustTextareaHeight()
@@ -1106,7 +1115,6 @@ async function startNewChat() {
   currentBotMessageIndex.value = null
   agentResponseMessageIndex.value = null
   threadId.value = uuidv4()
-  customSystemPrompt.value = ''
   contextStats.value = { chars: 0, tokens: 0 }
   liveCharsDelta.value = 0
 
@@ -1264,9 +1272,6 @@ async function processChat(
   const userMsgLength = getMessageText(userMessage).length
   liveCharsDelta.value = userMsgLength
 
-  // Determine if we should send custom system prompt or let backend generate default
-  const hasCustomPrompt = !!(customSystemPrompt.value || systemMessage)
-
   // Add user message to GUI history (display-only — backend manages its own history)
   history.value.push(userMessage)
 
@@ -1275,12 +1280,8 @@ async function processChat(
   let finalMessages: any[]
   let languageParam: string | undefined
 
-  if (hasCustomPrompt) {
-    let systemContent = customSystemPrompt.value || systemMessage || ''
-    if (additionalSystemPrompt.value) {
-      systemContent = '# Behavior\n' + additionalSystemPrompt.value + '\n\n' + systemContent
-    }
-    finalMessages = [new SystemMessage(systemContent), userMessage]
+  if (systemMessage) {
+    finalMessages = [new SystemMessage(systemMessage), userMessage]
     languageParam = undefined // Don't send language, backend uses custom prompt
   } else {
     finalMessages = [userMessage]
@@ -1466,6 +1467,7 @@ async function processChat(
       additionalSystemPrompt: additionalSystemPrompt.value || undefined,
       enabledWordTools: getActiveWordToolNames(),
       enabledGeneralTools: enabledGeneralTools.value,
+      mcpTools: enabledMcpTools.value,
       messages: finalMessages,
       errorIssue,
       loading,
@@ -1542,6 +1544,7 @@ async function processChat(
         additionalSystemPrompt: additionalSystemPrompt.value || undefined,
         messages: finalMessages,
         tools,
+        mcpTools: enabledMcpTools.value,
         errorIssue,
         loading,
         abortSignal: abortController.value?.signal,

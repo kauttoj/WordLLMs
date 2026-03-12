@@ -247,3 +247,21 @@ class ForkRequest(BaseModel):
     source_conversation_id: str
     target_conversation_id: str
     up_to_turn: int = Field(ge=1)
+
+
+# --- MCP Server Models ---
+
+class MCPServerAddRequest(BaseModel):
+    """Add a new MCP server configuration."""
+    name: str
+    command: str
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+
+
+class MCPServerUpdateRequest(BaseModel):
+    """Update an existing MCP server configuration."""
+    name: str | None = None
+    command: str | None = None
+    args: list[str] | None = None
+    env: dict[str, str] | None = None

@@ -68,6 +68,8 @@ export const localStorageKey = {
   anthropicCustomModels: 'anthropicCustomModels',
   anthropicTemperature: 'anthropicTemperature',
   anthropicMaxContextTokens: 'anthropicMaxContextTokens',
+  // mcp
+  enabledMcpTools: 'enabledMcpTools',
   // proxy
   enableProxy: 'enableProxy',
   proxy: 'proxy',

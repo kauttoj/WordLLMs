@@ -80,6 +80,7 @@ type supportedProviders = 'official' | 'ollama' | 'groq' | 'gemini' | 'azure' | 
 export interface AgentOptions extends BaseChatCompletionOptions {
   provider: supportedProviders
   tools?: any[]
+  mcpTools?: string[] // MCP tool names (already in backend format)
   onToolCall?: (toolName: string, args: any) => void
   onToolResult?: (toolName: string, result: string) => void
   onNewBlock?: () => void
@@ -153,6 +154,7 @@ export interface MultiAgentOptions extends BaseChatCompletionOptions {
   language?: string
   enabledWordTools?: string[]
   enabledGeneralTools?: string[]
+  mcpTools?: string[] // MCP tool names (already in backend format)
   onMessage?: (content: string, speaker?: string, round?: number) => void
   onToolCall?: (toolName: string, args: any, speaker?: string) => void
   onToolResult?: (toolName: string, result: string, speaker?: string) => void

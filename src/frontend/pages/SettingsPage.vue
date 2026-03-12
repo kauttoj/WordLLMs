@@ -424,15 +424,6 @@
                     </button>
                   </div>
 
-                  <label class="text-xs font-semibold text-secondary">{{ $t('systemPrompt') }}</label>
-                  <textarea
-                    v-model="slot.systemPrompt"
-                    class="min-h-16 w-full rounded-md border border-border bg-bg-secondary p-2 text-xs text-main focus:border-accent focus:outline-none"
-                    rows="3"
-                    :placeholder="$t('systemPromptPlaceholder')"
-                    @input="onSlotFieldChange"
-                  />
-
                   <label class="text-xs font-semibold text-secondary">{{ $t('userPrompt') }}</label>
                   <textarea
                     v-model="slot.userPrompt"
@@ -443,11 +434,6 @@
                   />
                 </div>
 
-                <div v-else-if="slot.systemPrompt" class="mt-1">
-                  <p class="overflow-hidden text-xs text-ellipsis text-secondary">
-                    {{ slot.systemPrompt.substring(0, 80) }}{{ slot.systemPrompt.length > 80 ? '...' : '' }}
-                  </p>
-                </div>
               </div>
             </div>
           </div>
@@ -492,6 +478,133 @@
                       {{ $t(`wordTool_${tool.name}_desc`) }}
                     </span>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- MCP Servers Settings -->
+          <div
+            v-show="currentTab === 'mcp'"
+            class="w-full flex-1 items-center gap-2 overflow-hidden bg-bg-secondary p-1"
+          >
+            <div
+              class="flex h-full w-full flex-col gap-2 overflow-auto rounded-md border border-border-secondary p-2 shadow-sm"
+            >
+              <div class="rounded-md border border-border-secondary p-1 shadow-sm">
+                <h3 class="text-center text-sm font-semibold text-accent/70">
+                  {{ t('mcpServers') }}
+                </h3>
+              </div>
+              <div class="rounded-md border border-border-secondary p-1 shadow-sm">
+                <p class="text-xs leading-normal font-medium wrap-break-word text-secondary">
+                  {{ t('mcpServersDescription') }}
+                </p>
+              </div>
+
+              <!-- Error display -->
+              <div
+                v-if="mcpError"
+                class="rounded-md border border-red-300 bg-red-50 p-2 text-xs text-red-700 dark:border-red-700 dark:bg-red-900/20 dark:text-red-400"
+              >
+                {{ mcpError }}
+                <button class="ml-2 underline" @click="mcpError = ''">dismiss</button>
+              </div>
+
+              <!-- Add Server Form -->
+              <div class="flex flex-col gap-1.5 rounded-md border border-border bg-surface p-2">
+                <span class="text-xs font-semibold text-secondary">{{ t('mcpAddServer') }}</span>
+                <input
+                  v-model="mcpNewName"
+                  :placeholder="t('mcpServerName')"
+                  class="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-main focus:border-accent focus:outline-none"
+                />
+                <input
+                  v-model="mcpNewCommand"
+                  :placeholder="t('mcpServerCommand')"
+                  class="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs font-mono text-main focus:border-accent focus:outline-none"
+                />
+                <input
+                  v-model="mcpNewArgs"
+                  :placeholder="t('mcpServerArgs')"
+                  class="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs font-mono text-main focus:border-accent focus:outline-none"
+                />
+                <input
+                  v-model="mcpNewEnv"
+                  :placeholder="t('mcpServerEnv')"
+                  class="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs font-mono text-main focus:border-accent focus:outline-none"
+                />
+                <CustomButton
+                  :icon="Plus"
+                  :text="t('mcpAddServer')"
+                  type="primary"
+                  class="self-end p-1! text-xs"
+                  @click="handleAddMcpServer"
+                />
+              </div>
+
+              <!-- Server List -->
+              <div v-for="server in mcpServers" :key="server.id" class="flex flex-col gap-1.5 rounded-md border border-border bg-surface p-2">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span
+                      class="inline-block h-2 w-2 rounded-full"
+                      :class="server.status === 'connected' ? 'bg-green-500' : 'bg-gray-400'"
+                    />
+                    <span class="text-xs font-semibold text-main">{{ server.name }}</span>
+                    <span class="text-xs text-secondary/70 font-mono">{{ server.command }} {{ server.args.join(' ') }}</span>
+                  </div>
+                  <div class="flex gap-1">
+                    <CustomButton
+                      v-if="server.status === 'disconnected'"
+                      :text="t('mcpConnect')"
+                      type="primary"
+                      class="p-1! text-xs"
+                      :disabled="mcpLoading[server.id]"
+                      @click="handleConnectMcp(server.id)"
+                    />
+                    <CustomButton
+                      v-else
+                      :text="t('mcpDisconnect')"
+                      type="secondary"
+                      class="p-1! text-xs"
+                      :disabled="mcpLoading[server.id]"
+                      @click="handleDisconnectMcp(server.id)"
+                    />
+                    <CustomButton
+                      :icon="Trash2"
+                      text=""
+                      type="secondary"
+                      class="border-none! p-1!"
+                      :icon-size="14"
+                      @click="handleDeleteMcpServer(server.id)"
+                    />
+                  </div>
+                </div>
+
+                <!-- Tools list (when connected) -->
+                <div v-if="server.status === 'connected' && server.tools.length > 0" class="flex flex-col gap-1 pl-4">
+                  <span class="text-xs text-secondary">{{ server.tools.length }} {{ t('mcpToolsDiscovered') }}</span>
+                  <div
+                    v-for="tool in server.tools"
+                    :key="tool.name"
+                    class="flex items-center gap-2 rounded-md border border-border bg-bg-secondary p-1.5 hover:border-accent"
+                  >
+                    <input
+                      :id="'mcp-tool-' + tool.name"
+                      type="checkbox"
+                      :checked="enabledMcpTools.has(tool.name)"
+                      class="h-3.5 w-3.5 cursor-pointer"
+                      @change="toggleMcpTool(tool.name)"
+                    />
+                    <div class="flex flex-col cursor-pointer" @click="toggleMcpTool(tool.name)">
+                      <label :for="'mcp-tool-' + tool.name" class="text-xs font-semibold text-secondary">{{ tool.original_name }}</label>
+                      <span v-if="tool.description" class="text-xs text-secondary/80">{{ tool.description }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div v-else-if="server.status === 'connected'" class="pl-4 text-xs text-secondary/70 italic">
+                  {{ t('mcpNoTools') }}
                 </div>
               </div>
             </div>
@@ -598,6 +711,7 @@ import {
   FolderOpen,
   Globe,
   MessageSquare,
+  Plug2,
   Plus,
   RotateCcwIcon,
   Save,
@@ -611,7 +725,18 @@ import { onBeforeMount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
-import { browseDirContents, getHistoryPath, setHistoryPath } from '@/api/backend'
+import {
+  addMcpServer,
+  browseDirContents,
+  connectMcpServer,
+  deleteMcpServer,
+  disconnectMcpServer,
+  fetchMcpServers,
+  getHistoryPath,
+  type McpServerInfo,
+  type McpToolInfo,
+  setHistoryPath,
+} from '@/api/backend'
 import type { MultiAgentConfig } from '@/api/types'
 import CustomButton from '@/components/CustomButton.vue'
 import CustomInput from '@/components/CustomInput.vue'
@@ -708,6 +833,16 @@ const multiAgentConfig = ref<MultiAgentConfig>({
 const enabledWordTools = ref<Set<string>>(new Set())
 const enabledGeneralTools = ref<Set<string>>(new Set())
 
+// MCP state
+const mcpServers = ref<McpServerInfo[]>([])
+const enabledMcpTools = ref<Set<string>>(new Set())
+const mcpNewName = ref('')
+const mcpNewCommand = ref('')
+const mcpNewArgs = ref('')
+const mcpNewEnv = ref('')
+const mcpLoading = ref<Record<string, boolean>>({})
+const mcpError = ref<string>('')
+
 const tabs = [
   { id: 'general', label: 'general', defaultLabel: 'General', icon: Globe },
   {
@@ -739,6 +874,12 @@ const tabs = [
     label: 'tools',
     defaultLabel: 'Tools',
     icon: Wrench,
+  },
+  {
+    id: 'mcp',
+    label: 'mcpServers',
+    defaultLabel: 'MCP',
+    icon: Plug2,
   },
 ]
 
@@ -880,11 +1021,10 @@ const setSlotIcon = (slot: QuickActionSlot, iconKey: string) => {
 
 const isSlotModified = (slot: QuickActionSlot): boolean => {
   const def = DEFAULT_QUICK_ACTION_SLOTS.find(d => d.id === slot.id)
-  if (!def) return slot.name.trim() !== '' || slot.systemPrompt.trim() !== '' || slot.userPrompt.trim() !== ''
+  if (!def) return slot.name.trim() !== '' || slot.userPrompt.trim() !== ''
   return (
     slot.name !== def.name ||
     slot.icon !== def.icon ||
-    slot.systemPrompt !== def.systemPrompt ||
     slot.userPrompt !== def.userPrompt ||
     slot.enabled !== def.enabled
   )
@@ -896,7 +1036,6 @@ const resetSlot = (slot: QuickActionSlot) => {
     Object.assign(slot, { ...def })
   } else {
     slot.name = ''
-    slot.systemPrompt = ''
     slot.userPrompt = ''
     slot.icon = 'Sparkle'
     slot.enabled = false
@@ -1010,6 +1149,127 @@ const isGeneralTool = (toolName: string): boolean => {
   return generalToolNames.includes(toolName as any)
 }
 
+// --- MCP Server Management ---
+
+const loadMcpToolPreferences = () => {
+  const stored = localStorage.getItem('enabledMcpTools')
+  if (stored) {
+    try {
+      enabledMcpTools.value = new Set(JSON.parse(stored))
+    } catch {
+      enabledMcpTools.value = new Set()
+    }
+  }
+}
+
+const saveMcpToolPreferences = () => {
+  localStorage.setItem('enabledMcpTools', JSON.stringify([...enabledMcpTools.value]))
+}
+
+const toggleMcpTool = (toolName: string) => {
+  if (enabledMcpTools.value.has(toolName)) {
+    enabledMcpTools.value.delete(toolName)
+  } else {
+    enabledMcpTools.value.add(toolName)
+  }
+  saveMcpToolPreferences()
+}
+
+const loadMcpServers = async () => {
+  try {
+    mcpServers.value = await fetchMcpServers()
+  } catch (e: any) {
+    mcpError.value = e.message
+  }
+}
+
+const handleAddMcpServer = async () => {
+  if (!mcpNewName.value.trim() || !mcpNewCommand.value.trim()) return
+  mcpError.value = ''
+
+  // Parse env vars from "KEY=VALUE" lines
+  const env: Record<string, string> = {}
+  for (const line of mcpNewEnv.value.split('\n').concat(mcpNewEnv.value.split(','))) {
+    const trimmed = line.trim()
+    if (!trimmed || !trimmed.includes('=')) continue
+    const eqIdx = trimmed.indexOf('=')
+    env[trimmed.slice(0, eqIdx).trim()] = trimmed.slice(eqIdx + 1).trim()
+  }
+
+  try {
+    await addMcpServer({
+      name: mcpNewName.value.trim(),
+      command: mcpNewCommand.value.trim(),
+      args: mcpNewArgs.value.trim() ? mcpNewArgs.value.trim().split(/\s+/) : [],
+      env,
+    })
+    mcpNewName.value = ''
+    mcpNewCommand.value = ''
+    mcpNewArgs.value = ''
+    mcpNewEnv.value = ''
+    await loadMcpServers()
+  } catch (e: any) {
+    mcpError.value = e.message
+  }
+}
+
+const handleDeleteMcpServer = async (serverId: string) => {
+  mcpError.value = ''
+  try {
+    // Remove any enabled tools from this server
+    const server = mcpServers.value.find(s => s.id === serverId)
+    if (server) {
+      for (const tool of server.tools) {
+        enabledMcpTools.value.delete(tool.name)
+      }
+      saveMcpToolPreferences()
+    }
+    await deleteMcpServer(serverId)
+    await loadMcpServers()
+  } catch (e: any) {
+    mcpError.value = e.message
+  }
+}
+
+const handleConnectMcp = async (serverId: string) => {
+  mcpError.value = ''
+  mcpLoading.value[serverId] = true
+  try {
+    const tools = await connectMcpServer(serverId)
+    // Auto-enable all newly discovered tools
+    for (const tool of tools) {
+      enabledMcpTools.value.add(tool.name)
+    }
+    saveMcpToolPreferences()
+    await loadMcpServers()
+  } catch (e: any) {
+    mcpError.value = e.message
+  } finally {
+    mcpLoading.value[serverId] = false
+  }
+}
+
+const handleDisconnectMcp = async (serverId: string) => {
+  mcpError.value = ''
+  mcpLoading.value[serverId] = true
+  try {
+    // Remove enabled tools for this server
+    const server = mcpServers.value.find(s => s.id === serverId)
+    if (server) {
+      for (const tool of server.tools) {
+        enabledMcpTools.value.delete(tool.name)
+      }
+      saveMcpToolPreferences()
+    }
+    await disconnectMcpServer(serverId)
+    await loadMcpServers()
+  } catch (e: any) {
+    mcpError.value = e.message
+  } finally {
+    mcpLoading.value[serverId] = false
+  }
+}
+
 // MultiAgent configuration persistence
 const loadMultiAgentConfig = () => {
   const stored = localStorage.getItem('multiAgentConfig')
@@ -1105,7 +1365,9 @@ const browseDbFile = async () => {
 onBeforeMount(async () => {
   loadCustomModels()
   loadToolPreferences()
+  loadMcpToolPreferences()
   loadMultiAgentConfig()
+  loadMcpServers()
 
   // Fetch the actual DB path from backend before setting up watchers,
   // so the field shows the real path (including the default) instead of being empty.

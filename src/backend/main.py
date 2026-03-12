@@ -1,5 +1,6 @@
 import json
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -17,6 +18,7 @@ from .schemas import (
     MultiAgentRequest, MultiAgentContinueRequest,
     ThreadSaveRequest, HistoryPathRequest,
     EditMessageRequest, TruncateRequest, ForkRequest,
+    MCPServerAddRequest, MCPServerUpdateRequest,
 )
 from .file_processing import format_attachments_for_message
 from .providers import create_model
@@ -24,6 +26,7 @@ from .tools import get_tools, ALL_TOOLS
 from .agents import stream_chat, stream_agent, resume_agent
 from .agents.chat_multiagent import stream_multiagent, resume_multiagent
 from .conversation_store import ConversationStore, DEFAULT_DB_PATH, _DATA_DIR
+from .mcp_integration import MCPClientManager
 
 DIST_DIR = Path(__file__).parent.parent.parent / "dist"
 CONFIG_PATH = _DATA_DIR / "config.json"
@@ -54,9 +57,23 @@ def _write_db_path_to_config(db_path: str) -> None:
 # Unified conversation history store (SQLite-backed, shared across all endpoints)
 conversation_store = ConversationStore(db_path=_read_db_path_from_config())
 
+# MCP client manager (connects to external MCP servers)
+MCP_CONFIG_PATH = _DATA_DIR / "mcp_servers.json"
+mcp_manager = MCPClientManager(config_path=MCP_CONFIG_PATH)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Auto-connect MCP servers on startup, clean disconnect on shutdown."""
+    await mcp_manager.auto_connect_servers()
+    yield
+    await mcp_manager.disconnect_all()
+
+
 app = FastAPI(
     title="WordLLMs Backend (LangGraph)",
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -181,7 +198,7 @@ async def agent_completion(request: AgentRequest):
 
             if not request.tools:
                 raise ValueError("No tools provided — frontend must send the active tool list")
-            server_tools, client_tools = get_tools(request.tools, tavily_api_key=request.tavily_api_key)
+            server_tools, client_tools = get_tools(request.tools, tavily_api_key=request.tavily_api_key, mcp_manager=mcp_manager)
 
             async for event in stream_agent(
                 model=model,
@@ -202,7 +219,7 @@ async def agent_completion(request: AgentRequest):
                 yield {"event": event["event"], "data": json.dumps(event["data"])}
         except Exception as e:
              yield {"event": "error", "data": json.dumps({"error": str(e)})}
-             
+
     return sse_response(generate())
 
 # --- Agent Continue Endpoint (LangGraph Resume) ---
@@ -222,7 +239,7 @@ async def agent_continue(request: AgentContinueRequest):
             # Use the same filtered tool list as the original /api/agent call
             if not request.tools:
                 raise ValueError("No tools in continue request — frontend must send the original tool list")
-            server_tools, client_tools = get_tools(request.tools, tavily_api_key=request.tavily_api_key)
+            server_tools, client_tools = get_tools(request.tools, tavily_api_key=request.tavily_api_key, mcp_manager=mcp_manager)
 
             async for event in resume_agent(
                 model=model,
@@ -297,8 +314,8 @@ async def multiagent_completion(request: MultiAgentRequest):
                 )
 
             # 5. Resolve Tools
-            expert_server_tools, expert_client_tools = get_tools(request.expert_tools, tavily_api_key=request.tavily_api_key)
-            supervisor_server_tools, supervisor_client_tools = get_tools(request.supervisor_tools, tavily_api_key=request.tavily_api_key)
+            expert_server_tools, expert_client_tools = get_tools(request.expert_tools, tavily_api_key=request.tavily_api_key, mcp_manager=mcp_manager)
+            supervisor_server_tools, supervisor_client_tools = get_tools(request.supervisor_tools, tavily_api_key=request.tavily_api_key, mcp_manager=mcp_manager)
 
             # 5. Start the LangGraph Multi-Agent Stream
             async for event in stream_multiagent(
@@ -352,6 +369,67 @@ async def multiagent_continue(request: MultiAgentContinueRequest):
             yield {"event": "error", "data": json.dumps({"error": str(e)})}
 
     return sse_response(generate())
+
+
+# --- MCP Server Management Endpoints ---
+
+@app.get("/api/mcp/servers")
+async def list_mcp_servers():
+    """List all configured MCP servers with status and discovered tools."""
+    return {"servers": mcp_manager.list_servers()}
+
+
+@app.post("/api/mcp/servers")
+async def add_mcp_server(request: MCPServerAddRequest):
+    """Add a new MCP server configuration."""
+    cfg = mcp_manager.add_server(
+        name=request.name,
+        command=request.command,
+        args=request.args,
+        env=request.env,
+    )
+    return {"server": {**cfg.__dict__, "status": "disconnected", "tools": []}}
+
+
+@app.put("/api/mcp/servers/{server_id}")
+async def update_mcp_server(server_id: str, request: MCPServerUpdateRequest):
+    """Update an existing MCP server configuration."""
+    cfg = mcp_manager.update_server(
+        server_id,
+        name=request.name,
+        command=request.command,
+        args=request.args,
+        env=request.env,
+    )
+    return {"server": {**cfg.__dict__, "status": "connected" if mcp_manager.is_connected(server_id) else "disconnected"}}
+
+
+@app.delete("/api/mcp/servers/{server_id}")
+async def delete_mcp_server(server_id: str):
+    """Remove an MCP server configuration (disconnects if connected)."""
+    await mcp_manager.remove_server(server_id)
+    return {"ok": True}
+
+
+@app.post("/api/mcp/servers/{server_id}/connect")
+async def connect_mcp_server(server_id: str):
+    """Connect to an MCP server and discover its tools."""
+    tools = await mcp_manager.connect(server_id)
+    return {"tools": tools}
+
+
+@app.post("/api/mcp/servers/{server_id}/disconnect")
+async def disconnect_mcp_server(server_id: str):
+    """Disconnect from an MCP server."""
+    await mcp_manager.disconnect(server_id)
+    return {"ok": True}
+
+
+@app.get("/api/mcp/servers/{server_id}/tools")
+async def list_mcp_server_tools(server_id: str):
+    """List tools discovered from a connected MCP server."""
+    tools = mcp_manager.get_server_tools(server_id)
+    return {"tools": tools}
 
 
 # --- Thread CRUD Endpoints (GUI display history) ---

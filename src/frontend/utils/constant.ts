@@ -131,7 +131,6 @@ import type { Component } from 'vue'
 export interface QuickActionSlot {
   id: string
   name: string
-  systemPrompt: string
   userPrompt: string
   icon: string
   enabled: boolean
@@ -160,8 +159,6 @@ export const DEFAULT_QUICK_ACTION_SLOTS: QuickActionSlot[] = [
   {
     id: 'slot_1',
     name: 'Translate',
-    systemPrompt:
-      'You are an expert polyglot translator. Your task is to provide professional, context-aware translations into ${language}.\n      Maintain formatting, keep the original tone, and ensure the output is idiomatic and elegant.',
     userPrompt:
       'Translate my text into ${language}.\n      Constraints:\n      1. Provide a natural-sounding translation suitable for native speakers.\n      2. If the text is technical, use appropriate terminology.\n      3. OUTPUT ONLY the translated text. Do not include "Here is the translation" or any explanations.',
     icon: 'Globe',
@@ -170,8 +167,6 @@ export const DEFAULT_QUICK_ACTION_SLOTS: QuickActionSlot[] = [
   {
     id: 'slot_2',
     name: 'Polish',
-    systemPrompt:
-      'You are a professional editor and stylist. Your goal is to make the text more professional, engaging, and clear in ${language}.',
     userPrompt:
       'Polish my text for better flow and impact.\n      Improvements:\n      - Correct grammar, spelling, and punctuation.\n      - Enhance vocabulary while maintaining the original meaning.\n      - Improve sentence structure and eliminate redundancy.\n      - Ensure the tone is consistent and professional.\n      Constraints:\n      1. Respond in ${language}.\n      2. OUTPUT ONLY the polished text without any commentary.',
     icon: 'Sparkle',
@@ -180,8 +175,6 @@ export const DEFAULT_QUICK_ACTION_SLOTS: QuickActionSlot[] = [
   {
     id: 'slot_3',
     name: 'Academic',
-    systemPrompt:
-      'You are a senior academic editor for high-impact journals (e.g., Nature, Science). You specialize in formal, precise, and objective scholarly writing in ${language}.',
     userPrompt:
       'Rewrite my text to meet professional academic standards.\n      Requirements:\n      - Use formal, objective language and avoid colloquialisms.\n      - Ensure logical transitions and precise scientific terminology.\n      - Maintain a third-person perspective unless the context requires otherwise.\n      - Optimize for clarity and conciseness as per peer-review expectations.\n      Constraints:\n      1. Respond in ${language}.\n      2. OUTPUT ONLY the revised text. No pre-amble or meta-talk.',
     icon: 'BookOpen',
@@ -190,8 +183,6 @@ export const DEFAULT_QUICK_ACTION_SLOTS: QuickActionSlot[] = [
   {
     id: 'slot_4',
     name: 'Summary',
-    systemPrompt:
-      'You are an expert document analyst. You excel at distilling complex information into clear, actionable summaries in ${language}.',
     userPrompt:
       'Summarize my text.\n      Structure:\n      - Capture the core message and primary supporting points.\n      - Aim for approximately 100 words (or 3-5 key bullet points).\n      - Ensure the summary is self-contained and easy to understand.\n      Constraints:\n      1. Respond in ${language}.\n      2. OUTPUT ONLY the summary.',
     icon: 'FileCheck',
@@ -200,20 +191,18 @@ export const DEFAULT_QUICK_ACTION_SLOTS: QuickActionSlot[] = [
   {
     id: 'slot_5',
     name: 'Grammar',
-    systemPrompt:
-      'You are a meticulous proofreader. Your sole focus is linguistic accuracy, including syntax, morphology, and orthography in ${language}.',
     userPrompt:
       'Check and correct the grammar of my text.\n      Focus:\n      - Fix all spelling and punctuation errors.\n      - Correct subject-verb agreement and tense inconsistencies.\n      - Ensure proper sentence structure.\n      Constraints:\n      1. If the text is already perfect, respond exactly with: "No grammatical issues found."\n      2. Otherwise, provide ONLY the corrected text without explaining the changes.\n      3. Respond in ${language}.',
     icon: 'CheckCircle',
     enabled: true,
   },
-  { id: 'slot_6', name: '', systemPrompt: '', userPrompt: '', icon: 'Lightbulb', enabled: false },
-  { id: 'slot_7', name: '', systemPrompt: '', userPrompt: '', icon: 'PenTool', enabled: false },
-  { id: 'slot_8', name: '', systemPrompt: '', userPrompt: '', icon: 'Star', enabled: false },
+  { id: 'slot_6', name: '', userPrompt: '', icon: 'Lightbulb', enabled: false },
+  { id: 'slot_7', name: '', userPrompt: '', icon: 'PenTool', enabled: false },
+  { id: 'slot_8', name: '', userPrompt: '', icon: 'Star', enabled: false },
 ]
 
 function makeEmptySlot(index: number): QuickActionSlot {
-  return { id: `slot_${index}`, name: '', systemPrompt: '', userPrompt: '', icon: 'Sparkle', enabled: false }
+  return { id: `slot_${index}`, name: '', userPrompt: '', icon: 'Sparkle', enabled: false }
 }
 
 export function getQuickActionSlots(): QuickActionSlot[] {
@@ -237,7 +226,6 @@ export function getQuickActionSlots(): QuickActionSlot[] {
       const keyMap = ['translate', 'polish', 'academic', 'summary', 'grammar']
       keyMap.forEach((key, i) => {
         if (custom[key]) {
-          defaults[i].systemPrompt = custom[key].system
           defaults[i].userPrompt = custom[key].user
         }
       })

@@ -618,6 +618,7 @@ export type WordToolName =
   | 'selectBetweenText'
   | 'setParagraphFormat'
   | 'setStyle'
+  | 'insertComment'
 
 /** Word tools that only read document content without modifying it. */
 export const READ_ONLY_WORD_TOOLS: WordToolName[] = [
@@ -1845,6 +1846,35 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
         range.styleBuiltIn = style as Word.BuiltInStyleName
         await context.sync()
         return `Successfully applied style: ${style}`
+      })
+    },
+  },
+
+  insertComment: {
+    name: 'insertComment',
+    description:
+      'Add a comment to the currently selected text in the Word document. Requires text to be selected first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        comment: {
+          type: 'string',
+          description: 'The comment text to add to the selected text',
+        },
+      },
+      required: ['comment'],
+    },
+    execute: async args => {
+      const { comment } = args
+      return Word.run(async context => {
+        const range = context.document.getSelection()
+        range.load('text')
+        await context.sync()
+        if (!range.text.trim()) throw new Error('No text is selected. Select text first before adding a comment.')
+        const commentObj = range.insertComment(comment)
+        commentObj.load('authorName')
+        await context.sync()
+        return `Comment added by ${commentObj.authorName}: "${comment}"`
       })
     },
   },
