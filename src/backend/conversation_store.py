@@ -43,8 +43,8 @@ def _msg_to_litellm(msg: BaseMessage) -> dict[str, Any]:
         role = "tool"
     else:
         role = "user"
-    content = msg.content if isinstance(msg.content, str) else str(msg.content)
-    d: dict[str, Any] = {"role": role, "content": content}
+    # Pass content as-is (str or multimodal list) so litellm can handle it properly
+    d: dict[str, Any] = {"role": role, "content": msg.content}
     if isinstance(msg, ToolMessage):
         d["tool_call_id"] = msg.tool_call_id
     if isinstance(msg, AIMessage) and msg.tool_calls:
@@ -56,8 +56,19 @@ def _msg_to_litellm(msg: BaseMessage) -> dict[str, Any]:
     return d
 
 
+# Approximate tokens per image — most providers charge 800-1600 tokens per image.
+_IMAGE_TOKENS_ESTIMATE = 1200
+
+
+def _count_image_parts(msg: BaseMessage) -> int:
+    """Count image_url parts in multimodal message content."""
+    if not isinstance(msg.content, list):
+        return 0
+    return sum(1 for p in msg.content if isinstance(p, dict) and p.get("type") == "image_url")
+
+
 def _count_msg_chars(msg: BaseMessage) -> int:
-    """Count characters in a message's content."""
+    """Count text characters in a message's content (images excluded)."""
     c = msg.content
     if isinstance(c, str):
         return len(c)
@@ -69,12 +80,13 @@ def _count_msg_chars(msg: BaseMessage) -> int:
 def _count_msg_tokens(msg: BaseMessage) -> int:
     """Estimate tokens for a single message, averaged across two tokenizers."""
     m = _msg_to_litellm(msg)
+    image_tokens = _count_image_parts(msg) * _IMAGE_TOKENS_ESTIMATE
     try:
         c1 = token_counter(model="gpt-5", messages=[m])
         c2 = token_counter(model="claude-sonnet-4-5", messages=[m])
-        return (c1 + c2) // 2
+        return (c1 + c2) // 2 + image_tokens
     except Exception:
-        return _count_msg_chars(msg) // 4
+        return _count_msg_chars(msg) // 4 + image_tokens
 
 
 # ---------------------------------------------------------------------------
@@ -576,20 +588,20 @@ class ConversationStore:
     def fork_conversation(
         self, source_id: str, target_id: str, up_to_turn: int,
     ) -> None:
-        """Clone conversation entries into a new conversation, cutting AI responses from the last turn.
+        """Clone conversation entries into a new conversation, excluding the fork-point turn.
 
-        Copies all complete turns before up_to_turn, plus only the user message
-        entry from up_to_turn (no AI response). This creates a forked conversation
-        ready for a fresh AI response.
+        Copies all complete turns strictly before up_to_turn. The user message
+        from up_to_turn is NOT included — the frontend returns it to the input
+        box so the user can re-edit and re-send.
         """
         source = self.get_or_create(source_id)
 
         target = Conversation(
-            turn_counter=up_to_turn,
+            turn_counter=up_to_turn - 1,
             system_prompt=source.system_prompt,
         )
         for entry in source.entries:
-            if entry.turn < up_to_turn or (entry.turn == up_to_turn and entry.persona == "user"):
+            if entry.turn < up_to_turn:
                 target.entries.append(ConversationEntry(
                     turn=entry.turn,
                     persona=entry.persona,

@@ -15,20 +15,97 @@ function sanitizeWordText(text: string): string {
 }
 
 /**
+ * Strip unambiguous markdown syntax from text before Word insertion.
+ * LLMs sometimes emit markdown despite explicit "no markdown" instructions.
+ * Only runs on text >= 150 chars (short text is never markdown dumps).
+ * Only strips patterns with near-zero false-positive risk.
+ */
+function stripMarkdown(text: string): string {
+  if (text.length < 150) return text
+
+  const original = text
+  const lines = text.split('\n')
+  const result: string[] = []
+  let inCodeFence = false
+
+  for (const line of lines) {
+    // Code fences: ```lang or ~~~ — drop fence lines, keep content
+    if (/^\s*(`{3,}|~{3,})/.test(line)) {
+      inCodeFence = !inCodeFence
+      continue
+    }
+    if (inCodeFence) {
+      result.push(line)
+      continue
+    }
+
+    // Horizontal rules: ---, ***, ___ (3+ repeated, optionally spaced)
+    if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) continue
+
+    let stripped = line
+
+    // Heading markers: ^#{1,6} text → text
+    stripped = stripped.replace(/^(\s*)#{1,6}\s+/, '$1')
+
+    // Images: ![alt](url) → alt (before links to avoid partial match)
+    stripped = stripped.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+
+    // Links: [text](url) → text
+    stripped = stripped.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+
+    // Strikethrough: ~~text~~ → text
+    stripped = stripped.replace(/~~(.+?)~~/g, '$1')
+
+    // Bold+italic: ***text*** or ___text___ → text
+    stripped = stripped.replace(/\*{3}(.+?)\*{3}/g, '$1')
+    stripped = stripped.replace(/_{3}(.+?)_{3}/g, '$1')
+
+    // Bold: **text** or __text__ → text
+    stripped = stripped.replace(/\*{2}(.+?)\*{2}/g, '$1')
+    stripped = stripped.replace(/_{2}(.+?)_{2}/g, '$1')
+
+    result.push(stripped)
+  }
+
+  const cleaned = result.join('\n')
+  if (cleaned !== original) {
+    console.warn(
+      '[WordTools] Stripped markdown from tool argument.\n  Before:',
+      original.slice(0, 200),
+      '\n  After:',
+      cleaned.slice(0, 200),
+    )
+  }
+  return cleaned
+}
+
+/**
  * Insert text into a Word range, splitting on \n to create proper paragraphs.
  * Office.js insertText handles \n inconsistently across platforms, so we
  * explicitly use insertParagraph for each line (proven pattern from common.ts).
  */
-function insertTextSafe(range: Word.Range, text: string, location: Word.InsertLocation): void {
+/**
+ * Insert text into a Word range, splitting on \n to create proper paragraphs.
+ * Returns the last inserted paragraph (for multi-line) so callers can
+ * move the cursor to maintain correct ordering across tool calls.
+ */
+function insertTextSafe(
+  range: Word.Range,
+  text: string,
+  location: Word.InsertLocation,
+): Word.Paragraph | null {
   const lines = text.replace(/\r\n|\r/g, '\n').split('\n')
   if (lines.length === 1) {
     range.insertText(text, location)
-    return
+    return null
   }
   range.insertText(lines[0], location)
+  let lastPara: Word.Paragraph | null = null
   for (let i = 1; i < lines.length; i++) {
-    range.insertParagraph(lines[i], 'After')
+    lastPara = range.insertParagraph(lines[i], 'After')
+    lastPara.styleBuiltIn = 'Normal'
   }
+  return lastPara
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -532,6 +609,15 @@ async function trackedReplace(context: Word.RequestContext, range: Word.Range, n
   range.insertText(newText, Word.InsertLocation.replace)
   await context.sync()
   context.document.changeTrackingMode = saved
+  // Reset style on non-first paragraphs to prevent heading style bleeding
+  if (newText.includes('\n')) {
+    const paras = range.paragraphs
+    paras.load('items')
+    await context.sync()
+    for (let i = 1; i < paras.items.length; i++) {
+      paras.items[i].styleBuiltIn = 'Normal'
+    }
+  }
   await context.sync()
 }
 
@@ -673,27 +759,34 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
 
   insertText: {
     name: 'insertText',
-    description: 'Insert text at the current cursor position in the Word document.',
+    description:
+      'Insert plain text at the current cursor position. Do not use markdown. Use \\n for paragraph breaks. The cursor advances after each insertion.',
     inputSchema: {
       type: 'object',
       properties: {
         text: {
           type: 'string',
-          description: 'The text to insert',
+          description: 'The text to insert. Use \\n for paragraph breaks.',
         },
         location: {
           type: 'string',
-          description: 'Where to insert: "Start", "End", "Before", "After", or "Replace"',
+          description: 'Where to insert relative to cursor: "Start", "End", "Before", "After", or "Replace"',
           enum: ['Start', 'End', 'Before', 'After', 'Replace'],
         },
       },
       required: ['text'],
     },
     execute: async args => {
-      const { text, location = 'End' } = args
+      const { text: rawText, location = 'End' } = args
+      const text = stripMarkdown(rawText)
       return Word.run(async context => {
         const range = context.document.getSelection()
-        insertTextSafe(range, text, location as Word.InsertLocation)
+        const lastPara = insertTextSafe(range, text, location as Word.InsertLocation)
+        // Move cursor to end of inserted content so consecutive calls
+        // insert in correct order instead of reversing
+        if (lastPara) {
+          lastPara.getRange('End').select()
+        }
         await context.sync()
         return `Successfully inserted text at ${location}`
       })
@@ -702,19 +795,21 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
 
   replaceSelectedText: {
     name: 'replaceSelectedText',
-    description: 'Replace the currently selected text with new text.',
+    description:
+      'Replace the entire selection with new content. For small targeted edits, use searchAndReplace instead. Do not use markdown. Use \\n for paragraph breaks.',
     inputSchema: {
       type: 'object',
       properties: {
         newText: {
           type: 'string',
-          description: 'The new text to replace the selection with',
+          description: 'The replacement text. Use \\n for paragraph breaks.',
         },
       },
       required: ['newText'],
     },
     execute: async args => {
-      const { newText } = args
+      const { newText: rawNewText } = args
+      const newText = stripMarkdown(rawNewText)
       return Word.run(async context => {
         const selection = context.document.getSelection()
         selection.load('text')
@@ -732,19 +827,21 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
 
   appendText: {
     name: 'appendText',
-    description: 'Append text to the end of the document.',
+    description:
+      'Append plain text to the end of the document. Do not use markdown. Use \\n for paragraph breaks.',
     inputSchema: {
       type: 'object',
       properties: {
         text: {
           type: 'string',
-          description: 'The text to append',
+          description: 'The text to append. Use \\n for paragraph breaks.',
         },
       },
       required: ['text'],
     },
     execute: async args => {
-      const { text } = args
+      const { text: rawText } = args
+      const text = stripMarkdown(rawText)
       return Word.run(async context => {
         const body = context.document.body
         const range = body.getRange('End')
@@ -757,18 +854,19 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
 
   insertParagraph: {
     name: 'insertParagraph',
-    description: 'Insert a new paragraph at the specified location.',
+    description:
+      'Insert a new paragraph. Use the style parameter for headings, quotes, etc. Do not use markdown. The cursor advances after insertion, so consecutive calls produce correct top-to-bottom order.',
     inputSchema: {
       type: 'object',
       properties: {
         text: {
           type: 'string',
-          description: 'The paragraph text',
+          description: 'The paragraph text.',
         },
         location: {
           type: 'string',
           description:
-            'Where to insert: "After" (after cursor/selection), "Before" (before cursor), "Start" (start of doc), or "End" (end of doc). Default is "After".',
+            '"After" (default, after cursor), "Before", "Start" (start of doc), or "End" (end of doc).',
           enum: ['After', 'Before', 'Start', 'End'],
         },
         style: {
@@ -790,7 +888,8 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
       required: ['text'],
     },
     execute: async args => {
-      const { text, location = 'After', style } = args
+      const { text: rawText, location = 'After', style } = args
+      const text = stripMarkdown(rawText)
       return Word.run(async context => {
         // Split on \n so each line becomes its own paragraph
         const lines = text.replace(/\r\n|\r/g, '\n').split('\n')
@@ -812,6 +911,9 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
           }
           paragraph = nextPara
         }
+        // Move cursor to end of last inserted paragraph so consecutive calls
+        // insert in correct top-to-bottom order instead of reversing
+        paragraph.getRange('End').select()
         await context.sync()
         return `Successfully inserted paragraph at ${location}`
       })
@@ -892,7 +994,8 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
 
   searchAndReplace: {
     name: 'searchAndReplace',
-    description: 'Search for text in the document and replace it with new text.',
+    description:
+      'Search for text in the document and replace it. Preferred for targeted edits: typos, grammar, proofreading.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -913,8 +1016,9 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
       required: ['searchText', 'replaceText'],
     },
     execute: async args => {
-      const { searchText: rawSearch, replaceText, matchCase = false } = args
+      const { searchText: rawSearch, replaceText: rawReplace, matchCase = false } = args
       const searchText = stripNewlines(rawSearch)
+      const replaceText = stripMarkdown(rawReplace)
       return Word.run(async context => {
         const { body, parsed } = await getDocumentParsed(context)
         const ranges = await resolveAllOccurrencesCaseAware(context, body, parsed, searchText, matchCase)
@@ -935,7 +1039,7 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
 
   searchAndReplaceInSelection: {
     name: 'searchAndReplaceInSelection',
-    description: 'Search for text in the current selection and replace it with new text.',
+    description: 'Search and replace within the current selection only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -956,8 +1060,9 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
       required: ['searchText', 'replaceText'],
     },
     execute: async args => {
-      const { searchText: rawSearch, replaceText, matchCase = false } = args
+      const { searchText: rawSearch, replaceText: rawReplace, matchCase = false } = args
       const searchText = stripNewlines(rawSearch)
+      const replaceText = stripMarkdown(rawReplace)
       return Word.run(async context => {
         const selection = context.document.getSelection()
         selection.load('text')
@@ -1090,6 +1195,8 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
 
         const table = range.insertTable(rows, columns, 'After', tableData)
         table.styleBuiltIn = 'GridTable1Light'
+        // Advance cursor past the table for correct ordering
+        table.getRange('End').select()
 
         await context.sync()
         return `Successfully inserted ${rows}x${columns} table`
@@ -1133,6 +1240,14 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
           list.setLevelBullet(0, Word.ListBullet.solid)
         } else {
           list.setLevelNumbering(0, Word.ListNumbering.arabic)
+        }
+
+        // Advance cursor past the list for correct ordering
+        const listParagraphs = list.paragraphs
+        listParagraphs.load('items')
+        await context.sync()
+        if (listParagraphs.items.length > 0) {
+          listParagraphs.items[listParagraphs.items.length - 1].getRange('End').select()
         }
 
         await context.sync()

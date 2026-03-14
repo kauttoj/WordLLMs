@@ -36,7 +36,7 @@ def _get_mime_type(filename: str) -> str:
     return mime or "application/octet-stream"
 
 
-def parse_file(filename: str, data_b64: str, char_limit: int = 0) -> str:
+def parse_file(filename: str, data_b64: str, char_limit: int = 0) -> tuple[str, dict | None]:
     """Parse a base64-encoded file into markdown text via MarkItDown.
 
     Args:
@@ -45,7 +45,8 @@ def parse_file(filename: str, data_b64: str, char_limit: int = 0) -> str:
         char_limit: Max characters in output. 0 means unlimited.
 
     Returns:
-        Parsed markdown text content.
+        (text, truncation_info) where truncation_info is None or
+        {"filename": str, "original_chars": int, "truncated_chars": int}.
 
     Raises:
         ValueError: On unsupported file types or parse failures.
@@ -76,16 +77,22 @@ def parse_file(filename: str, data_b64: str, char_limit: int = 0) -> str:
             raise ValueError(f"Failed to parse '{filename}': {e}") from e
         text = result.text_content
 
+    truncation_info = None
     if char_limit > 0 and len(text) > char_limit:
+        truncation_info = {
+            "filename": filename,
+            "original_chars": len(text),
+            "truncated_chars": char_limit,
+        }
         text = text[:char_limit] + f"\n\n[Content truncated at {char_limit} characters]"
 
-    return text
+    return text, truncation_info
 
 
 def format_attachments_for_message(
     attachments: list[dict],
     char_limit: int = 0,
-) -> tuple[str, list[dict]]:
+) -> tuple[str, list[dict], list[dict]]:
     """Parse all attachments and split into text block + image parts.
 
     Args:
@@ -93,12 +100,14 @@ def format_attachments_for_message(
         char_limit: Per-file character limit for parsed text. 0 = unlimited.
 
     Returns:
-        (text_block, image_parts) where:
+        (text_block, image_parts, truncation_warnings) where:
         - text_block: formatted text for non-image files
         - image_parts: list of multimodal image_url content parts for images
+        - truncation_warnings: list of dicts for files that were truncated
     """
     text_parts: list[str] = []
     image_parts: list[dict] = []
+    truncation_warnings: list[dict] = []
 
     for att in attachments:
         filename = att["filename"]
@@ -111,7 +120,9 @@ def format_attachments_for_message(
                 "image_url": {"url": f"data:{mime};base64,{data_b64}"},
             })
         else:
-            content = parse_file(filename, data_b64, char_limit)
+            content, trunc_info = parse_file(filename, data_b64, char_limit)
+            if trunc_info:
+                truncation_warnings.append(trunc_info)
             text_parts.append(
                 f'<attachment filename="{filename}">\n{content}\n</attachment>'
             )
@@ -120,4 +131,4 @@ def format_attachments_for_message(
     if text_parts:
         text_block = "\n\n---\n**Attached Files:**\n\n" + "\n\n".join(text_parts)
 
-    return text_block, image_parts
+    return text_block, image_parts, truncation_warnings

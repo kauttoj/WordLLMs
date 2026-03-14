@@ -717,7 +717,7 @@ async function applyQuickActionSlot(slot: QuickActionSlot) {
 const mode = useStorage(localStorageKey.chatMode, 'ask' as 'ask' | 'agent' | 'multiagent')
 const history = ref<Message[]>([])
 const messageMetadata = new Map<number, BotMetadata>() // Bot metadata for multiagent display
-const messageAttachmentsMap = new Map<number, { filename: string }[]>() // Attachment filenames per message
+const messageAttachmentsMap = new Map<number, { filename: string; data?: string }[]>() // Attachment info per message (data present in-memory, absent after reload)
 const currentBotMessageIndex = ref<number | null>(null) // Track current bot message being streamed
 const userInput = ref('')
 const loading = ref(false)
@@ -776,7 +776,7 @@ async function refreshContextStats() {
 
 // Attachment state
 const MAX_TOTAL_ATTACHMENT_BYTES = 50 * 1024 * 1024 // 50 MB
-const pendingAttachments = ref<{ file: File; filename: string; data: string }[]>([])
+const pendingAttachments = ref<{ file: File | null; filename: string; data: string }[]>([])
 const fileInputRef = ref<HTMLInputElement>()
 
 function openFileSelector() {
@@ -792,7 +792,10 @@ async function handleFileSelect(event: Event) {
 
 async function addFiles(files: File[]) {
   for (const file of files) {
-    const currentTotal = pendingAttachments.value.reduce((sum, a) => sum + a.file.size, 0)
+    const currentTotal = pendingAttachments.value.reduce(
+      (sum, a) => sum + (a.file ? a.file.size : Math.ceil(a.data.length * 0.75)),
+      0,
+    )
     if (currentTotal + file.size > MAX_TOTAL_ATTACHMENT_BYTES) {
       messageUtil.error(t('filesTooLarge'))
       return
@@ -1225,7 +1228,7 @@ async function sendMessage() {
     const userMsgIndex = history.value.length // processChat will push user msg at this index
     messageAttachmentsMap.set(
       userMsgIndex,
-      messageAttachments.map(a => ({ filename: a.filename })),
+      messageAttachments.map(a => ({ filename: a.filename, data: a.data })),
     )
   }
 
@@ -1744,11 +1747,15 @@ async function forkFromMessage(index: number) {
     return
   }
 
-  // Include history up to and including the user message only (cut AI responses after it)
-  const forkedHistory = history.value.slice(0, index + 1)
+  // Pop fork-point user message out of history and return it to the input box.
+  // History keeps everything BEFORE the fork-point message (no consecutive user messages).
+  const forkPointText = getMessageText(history.value[index])
+  const forkPointAttachments = messageAttachmentsMap.get(index)
+
+  const forkedHistory = history.value.slice(0, index)
   const forkedMetadata = new Map<number, BotMetadata>()
-  const forkedAttachments = new Map<number, { filename: string }[]>()
-  for (let i = 0; i <= index; i++) {
+  const forkedAttachments = new Map<number, { filename: string; data?: string }[]>()
+  for (let i = 0; i < index; i++) {
     if (messageMetadata.has(i)) forkedMetadata.set(i, messageMetadata.get(i)!)
     if (messageAttachmentsMap.has(i)) forkedAttachments.set(i, messageAttachmentsMap.get(i)!)
   }
@@ -1760,10 +1767,18 @@ async function forkFromMessage(index: number) {
   forkedAttachments.forEach((v, k) => messageAttachmentsMap.set(k, v))
   threadId.value = newThreadId
 
+  // Return fork-point message to input box for re-editing
+  userInput.value = forkPointText
+  pendingAttachments.value =
+    forkPointAttachments?.filter(a => a.data).map(a => ({ file: null, filename: a.filename, data: a.data! })) ?? []
+
   await saveConversationToThread()
   refreshContextStats()
   messageUtil.success(t('fork'))
   console.log('[HomePage] Forked conversation to new thread:', newThreadId)
+
+  await nextTick()
+  adjustTextareaHeight()
 }
 
 async function retryLastMessage() {
@@ -1781,6 +1796,9 @@ async function retryLastMessage() {
   const turn = getTurnForHumanMessageIndex(lastHumanIndex)
   const originalText = getMessageText(history.value[lastHumanIndex])
 
+  // Capture attachment data BEFORE truncation destroys the map entry
+  const savedAttachments = messageAttachmentsMap.get(lastHumanIndex)
+
   try {
     await truncateConversation(threadId.value, turn)
   } catch (error) {
@@ -1791,11 +1809,18 @@ async function retryLastMessage() {
 
   truncateHistoryAndMaps(lastHumanIndex)
 
+  // Re-register attachments for the retried message (processChat pushes user msg at this index)
+  if (savedAttachments?.length) {
+    messageAttachmentsMap.set(history.value.length, savedAttachments)
+  }
+
   const userMessage = new HumanMessage(originalText)
+  const attachmentData = savedAttachments?.filter(a => a.data).map(a => ({ filename: a.filename, data: a.data! }))
+
   loading.value = true
   abortController.value = new AbortController()
   try {
-    await processChat(userMessage)
+    await processChat(userMessage, undefined, attachmentData?.length ? attachmentData : undefined)
   } catch (error: any) {
     if (error.name === 'AbortError') {
       messageUtil.info(t('generationStop'))
@@ -1941,7 +1966,7 @@ const shouldShowBotHeader = (index: number): boolean => {
   return true
 }
 
-const getMessageAttachments = (index: number): { filename: string }[] | undefined => {
+const getMessageAttachments = (index: number): { filename: string; data?: string }[] | undefined => {
   return messageAttachmentsMap.get(index)
 }
 
@@ -2075,7 +2100,7 @@ async function saveConversationToThread() {
       const content = getMessageText(msg)
       if (!content || content.trim().length === 0) continue
 
-      const attachments = messageAttachmentsMap.get(i)
+      const attachments = messageAttachmentsMap.get(i)?.map(a => ({ filename: a.filename }))
       if (msg instanceof ToolCallMessage) {
         serializedMessages.push({
           role: 'tool_call' as const,

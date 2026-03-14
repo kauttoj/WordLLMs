@@ -9,6 +9,7 @@
  * /api/agent/continue with the results.
  */
 
+import { message as messageUtil } from '@/utils/message'
 import { getWordTool, WordToolName } from '@/utils/wordTools'
 
 import { AgentOptions, MultiAgentExpertConfig, MultiAgentOptions, ProviderOptions } from './types'
@@ -248,6 +249,7 @@ interface ParseSSEOptions {
   onToolResult?: (name: string, result: string, speaker?: string) => void
   onClientToolCall?: (sessionId: string, toolCalls: ClientToolCall[]) => void
   onError?: (error: string) => void
+  onWarning?: (warnings: TruncationWarning[]) => void
   onNewBlock?: (speaker?: string) => void
   onOverseerDecision?: (decision: string) => void
   abortSignal?: AbortSignal
@@ -368,6 +370,11 @@ async function parseSSEStream(response: Response, options: ParseSSEOptions): Pro
                   options.onNewBlock(data.speaker)
                 }
                 break
+              case 'warning':
+                if (options.onWarning) {
+                  options.onWarning(data.warnings)
+                }
+                break
               case 'error':
                 if (options.onError) {
                   options.onError(data.error)
@@ -400,6 +407,28 @@ async function parseSSEStream(response: Response, options: ParseSSEOptions): Pro
   } finally {
     reader.releaseLock()
   }
+}
+
+// ---------------------------------------------------------------------------
+// Truncation warning helper
+// ---------------------------------------------------------------------------
+
+interface TruncationWarning {
+  filename: string
+  original_chars: number
+  truncated_chars: number
+}
+
+function formatTruncationWarning(warnings: TruncationWarning[]): string {
+  const lines = warnings.map(w => {
+    const pct = Math.round((w.truncated_chars / w.original_chars) * 100)
+    return `${w.filename}: ${w.truncated_chars.toLocaleString()} / ${w.original_chars.toLocaleString()} chars (${pct}% kept)`
+  })
+  return `File content truncated:\n${lines.join('\n')}`
+}
+
+function handleTruncationWarning(warnings: TruncationWarning[]) {
+  messageUtil.warning(formatTruncationWarning(warnings), 8000)
 }
 
 // ---------------------------------------------------------------------------
@@ -468,6 +497,7 @@ export async function streamChatFromBackend(options: ProviderOptions, language?:
 
     await parseSSEStream(response, {
       onText: options.onStream,
+      onWarning: handleTruncationWarning,
       onError: error => {
         options.errorIssue.value = error
       },
@@ -593,6 +623,7 @@ export async function streamAgentFromBackend(options: AgentOptions, language?: s
         onToolCall: options.onToolCall,
         onToolResult: options.onToolResult,
         onNewBlock: options.onNewBlock,
+        onWarning: handleTruncationWarning,
         onClientToolCall: (sid, toolCalls) => {
           sessionId = sid
           pendingClientCalls = toolCalls
@@ -916,6 +947,7 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
         onMessage: (content: string, speaker?: string, round?: number) => {
           options.onMessage?.(content, speaker, round)
         },
+        onWarning: handleTruncationWarning,
         onToolCall: (name: string, args: any, speaker?: string) => {
           if (options.onToolCall) options.onToolCall(name, args, speaker)
         },

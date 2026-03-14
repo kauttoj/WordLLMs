@@ -95,43 +95,47 @@ def select_between_text(startText: str, endText: str, matchCase: bool = False) -
 
 @tool
 def insert_text(text: str, location: str = "End") -> str:
-    """Insert text at the current cursor position in the Word document.
+    """Insert plain text at the current cursor position. Do not use markdown.
+    Use \\n for paragraph breaks. The cursor advances after each insertion.
 
     Args:
-        text: The text to insert.
-        location: Where to insert: "Start", "End", "Before", "After", or "Replace".
+        text: The text to insert. Use \\n for paragraph breaks.
+        location: Where to insert relative to cursor: "Start", "End", "Before", "After", or "Replace".
     """
     _client_only()
 
 
 @tool
 def replace_selected_text(newText: str) -> str:
-    """Replace ALL currently selected text with entirely new content. This replaces the entire selection -- for small edits (typos, grammar), use search_and_replace instead.
+    """Replace the entire selection with new content. For small targeted edits, use search_and_replace instead.
+    Do not use markdown. Use \\n for paragraph breaks.
 
     Args:
-        newText: The new text to replace the entire selection with.
+        newText: The replacement text. Use \\n for paragraph breaks.
     """
     _client_only()
 
 
 @tool
 def append_text(text: str) -> str:
-    """Append text to the end of the document.
+    """Append plain text to the end of the document. Do not use markdown.
+    Use \\n for paragraph breaks.
 
     Args:
-        text: The text to append.
+        text: The text to append. Use \\n for paragraph breaks.
     """
     _client_only()
 
 
 @tool
 def insert_paragraph(text: str, location: str = "After", style: Optional[str] = None) -> str:
-    """Insert a new paragraph at the specified location.
+    """Insert a new paragraph. Use the style parameter for headings, quotes, etc. Do not use markdown.
+    The cursor advances after insertion, so consecutive calls produce correct top-to-bottom order.
 
     Args:
         text: The paragraph text.
-        location: Where to insert: "After" (after cursor/selection), "Before" (before cursor), "Start" (start of doc), or "End" (end of doc). Default is "After".
-        style: Optional Word built-in style: Normal, Heading1, Heading2, Heading3, Heading4, Quote, IntenseQuote, Title, Subtitle.
+        location: "After" (default, after cursor), "Before", "Start" (start of doc), or "End" (end of doc).
+        style: Optional built-in style: Normal, Heading1, Heading2, Heading3, Heading4, Quote, IntenseQuote, Title, Subtitle.
     """
     _client_only()
 

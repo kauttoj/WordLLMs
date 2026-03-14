@@ -69,8 +69,21 @@ def _build_tool_sections(tools: list) -> str:
             lines.append('When selecting by range anchors, choose unique multi-word phrases (3-5 words) that appear only once in the document.')
         strategy.append('## Selection\n' + '\n'.join(f'- {l}' for l in lines))
 
-    # Editing / Writing guidance (only when write tools are present)
+    # Cursor, selection, and insertion order guidance
     has_write = bool(tool_names & WRITE_WORD_TOOLS)
+    if has_selection or has_write:
+        cursor_lines: list[str] = []
+        if has_selection:
+            cursor_lines.append(
+                'Selection tools move the cursor. To insert at a specific location: first select the target, then insert with location="After".'
+            )
+        if has_write:
+            cursor_lines.append(
+                'After each insertion the cursor advances to the end of the inserted content, so consecutive calls produce correct top-to-bottom order.'
+            )
+        strategy.append('## Cursor & Insertion\n' + '\n'.join(f'- {l}' for l in cursor_lines))
+
+    # Editing / Writing guidance (only when write tools are present)
     if has_write:
         lines = []
         if tool_names & {'search_and_replace', 'search_and_replace_in_selection'}:
@@ -81,6 +94,17 @@ def _build_tool_sections(tools: list) -> str:
             lines.append('When in doubt, prefer targeted edits over wholesale text replacements.')
         if lines:
             strategy.append('## Editing vs. Writing\n' + '\n'.join(f'- {l}' for l in lines))
+
+    # Text formatting guidance (only when write tools are present)
+    if has_write:
+        fmt_lines = [
+            'All text arguments must be **plain text**. Never use markdown syntax (## headings, **bold**, - bullets) in tool arguments.',
+            'For headings, use `insert_paragraph` with the `style` parameter (e.g., style="Heading1").',
+            'For lists, use `insert_list` with an items array instead of writing markdown bullet points.',
+            'Use `\\n` in text arguments to create paragraph breaks.',
+            'When writing mixed-style content (e.g., a heading followed by body text), use separate `insert_paragraph` calls with explicit `style` for each paragraph instead of a single `replace_selected_text` or `insert_text` call with `\\n`.',
+        ]
+        strategy.append('## Text Formatting\n' + '\n'.join(f'- {l}' for l in fmt_lines))
 
     if strategy:
         sections.append('# Tool Strategy\n' + '\n\n'.join(strategy))

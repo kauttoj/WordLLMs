@@ -86,14 +86,16 @@ app.add_middleware(
 
 MAX_ATTACHMENTS_BYTES = 50 * 1024 * 1024  # 50 MB total
 
-def inject_attachments(request: ChatRequest | AgentRequest | MultiAgentRequest) -> None:
+def inject_attachments(request: ChatRequest | AgentRequest | MultiAgentRequest) -> list[dict]:
     """Parse file attachments and inject their content into the last user message.
 
     Mutates request.messages in-place. For text files, appends parsed content
     to the message. For images, converts to multimodal content format.
+
+    Returns list of truncation warnings (empty if none).
     """
     if not request.attachments:
-        return
+        return []
 
     # Enforce total size limit
     total_bytes = sum(len(a.data) for a in request.attachments)
@@ -101,7 +103,7 @@ def inject_attachments(request: ChatRequest | AgentRequest | MultiAgentRequest) 
         raise ValueError(f"Total attachment size ({total_bytes} bytes) exceeds 50MB limit")
 
     att_dicts = [{"filename": a.filename, "data": a.data} for a in request.attachments]
-    text_block, image_parts = format_attachments_for_message(att_dicts, request.attachment_char_limit)
+    text_block, image_parts, truncation_warnings = format_attachments_for_message(att_dicts, request.attachment_char_limit)
 
     # Find last user message
     user_msg = None
@@ -125,6 +127,8 @@ def inject_attachments(request: ChatRequest | AgentRequest | MultiAgentRequest) 
         else:
             # Already a list (shouldn't happen without images, but handle gracefully)
             user_msg.content.insert(0, {"type": "text", "text": text_block})
+
+    return truncation_warnings
 
 
 def sse_response(event_generator: AsyncGenerator[dict, None]) -> StreamingResponse:
@@ -156,8 +160,10 @@ async def context_stats(conversation_id: str):
 # --- Chat Endpoint (Standard Stream) ---
 @app.post("/api/chat")
 async def chat_completion(request: ChatRequest):
-    inject_attachments(request)
+    truncation_warnings = inject_attachments(request)
     async def generate():
+        if truncation_warnings:
+            yield {"event": "warning", "data": json.dumps({"warnings": truncation_warnings})}
         try:
             model = create_model(
                 provider=request.provider,
@@ -185,8 +191,10 @@ async def chat_completion(request: ChatRequest):
 # --- Agent Endpoint (LangGraph Start) ---
 @app.post("/api/agent")
 async def agent_completion(request: AgentRequest):
-    inject_attachments(request)
+    truncation_warnings = inject_attachments(request)
     async def generate():
+        if truncation_warnings:
+            yield {"event": "warning", "data": json.dumps({"warnings": truncation_warnings})}
         try:
             model = create_model(
                 provider=request.provider,
@@ -262,8 +270,10 @@ async def agent_continue(request: AgentContinueRequest):
 
 @app.post("/api/multiagent")
 async def multiagent_completion(request: MultiAgentRequest):
-    inject_attachments(request)
+    truncation_warnings = inject_attachments(request)
     async def generate():
+        if truncation_warnings:
+            yield {"event": "warning", "data": json.dumps({"warnings": truncation_warnings})}
         try:
             # 1. Instantiate all Expert models
             expert_models = []
