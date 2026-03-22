@@ -110,7 +110,7 @@ function convertMessages(messages: any[]): BackendMessage[] {
 function buildCredentials(options: ProviderOptions | AgentOptions): BackendCredentials {
   const creds: BackendCredentials = {}
 
-  if (options.provider === 'official' && 'config' in options && options.config) {
+  if (options.provider === 'openai' && 'config' in options && options.config) {
     creds.api_key = options.config.apiKey
     if (options.config.baseURL) {
       creds.base_url = options.config.baseURL
@@ -136,6 +136,9 @@ function buildCredentials(options: ProviderOptions | AgentOptions): BackendCrede
   } else if (options.provider === 'anthropic') {
     const opts = options as any
     creds.api_key = opts.anthropicAPIKey
+  } else if (options.provider === 'togetherai') {
+    const opts = options as any
+    creds.api_key = opts.togetheraiAPIKey
   }
 
   return creds
@@ -151,13 +154,12 @@ function getModelName(options: ProviderOptions | AgentOptions): string {
   if ('ollamaModel' in options && options.ollamaModel) return options.ollamaModel
   if ('groqModel' in options && options.groqModel) return options.groqModel
   if ('geminiModel' in options && options.geminiModel) return options.geminiModel
+  if ('togetheraiModel' in options && options.togetheraiModel) return options.togetheraiModel
   if ('azureDeploymentName' in options && options.azureDeploymentName) return options.azureDeploymentName
   throw new Error(`No model configured for provider "${options.provider}". Select a model in Settings.`)
 }
 
 function mapProvider(provider: string): string {
-  // Map frontend provider names to backend names
-  if (provider === 'official') return 'openai'
   return provider
 }
 
@@ -716,7 +718,7 @@ export async function fetchContextStats(conversationId: string): Promise<{ chars
 function buildExpertConfig(expert: MultiAgentExpertConfig): any {
   const creds: BackendCredentials = {}
 
-  if (expert.provider === 'official' && expert.config) {
+  if (expert.provider === 'openai' && expert.config) {
     creds.api_key = expert.config.apiKey
     if (expert.config.baseURL) {
       creds.base_url = expert.config.baseURL

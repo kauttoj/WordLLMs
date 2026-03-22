@@ -1,6 +1,6 @@
 type IStringKeyMap = Record<string, any>
 
-type supportedPlatforms = 'official' | 'azure' | 'gemini' | 'ollama' | 'groq' | 'anthropic' | 'lmstudio'
+type supportedPlatforms = 'openai' | 'azure' | 'gemini' | 'ollama' | 'groq' | 'anthropic' | 'lmstudio' | 'togetherai'
 
 type insertTypes = 'replace' | 'append' | 'newLine' | 'NoAction'
 

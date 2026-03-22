@@ -273,6 +273,8 @@ Full instructions from Microsoft: [Sideload Office Add-ins](https://learn.micros
 
 ## Usage
 
+For a full user-friendly tutorial covering all features, see the **[Usage Instructions](USAGE_INSTRUCTIONS.md)**.
+
 ### Getting Started
 
 After opening WordLLMs, click the **Settings** button on the homepage to configure your preferred AI providers and API keys.

@@ -9,7 +9,7 @@ export function checkAuth(auth: Auth): boolean {
   if (!auth) return false
 
   switch (auth.type) {
-    case 'official':
+    case 'openai':
       return !!auth.apiKey
     case 'anthropic':
       return !!auth.anthropicAPIKey
@@ -19,6 +19,8 @@ export function checkAuth(auth: Auth): boolean {
       return !!auth.geminiAPIKey
     case 'groq':
       return !!auth.groqAPIKey
+    case 'togetherai':
+      return !!auth.togetheraiAPIKey
     case 'ollama':
     case 'lmstudio':
       return true

@@ -768,7 +768,7 @@ const currentTab = ref('provider')
 // Local-only ref for navigating provider config panels in Settings.
 // This must NOT be tied to settingForm.api, which controls the active
 // provider on the main page. Changing this only selects which panel to show.
-const settingsProvider = ref(localStorage.getItem(localStorageKey.api) || 'official')
+const settingsProvider = ref(localStorage.getItem(localStorageKey.api) || 'openai')
 
 // Word tools list
 const wordToolsList = [...getGeneralToolDefinitions(), ...getWordToolDefinitions()]
@@ -794,7 +794,7 @@ const multiAgentConfig = ref<MultiAgentConfig>({
     {
       id: 'expert_1',
       name: 'Expert_1',
-      provider: 'official',
+      provider: 'openai',
       model: '',
       temperature: 1.0,
     },
@@ -808,14 +808,14 @@ const multiAgentConfig = ref<MultiAgentConfig>({
     {
       id: 'expert_3',
       name: 'Expert_3',
-      provider: 'official',
+      provider: 'openai',
       model: '',
       temperature: 1.0,
     },
     {
       id: 'expert_4',
       name: 'Expert_4',
-      provider: 'official',
+      provider: 'openai',
       model: '',
       temperature: 1.0,
     },
@@ -921,7 +921,7 @@ const getCustomModelsKey = (platform: string): SettingNames | null => {
 }
 
 const loadCustomModels = () => {
-  const platforms = ['official', 'anthropic', 'gemini', 'ollama', 'groq', 'azure', 'lmstudio']
+  const platforms = ['openai', 'anthropic', 'gemini', 'ollama', 'groq', 'azure', 'lmstudio', 'togetherai']
   platforms.forEach(platform => {
     const key = getCustomModelsKey(platform)
     if (key && settingPreset[key].getFunc) {
@@ -1286,7 +1286,7 @@ const loadMultiAgentConfig = () => {
         parsed.experts.push({
           id: `expert_${idx}`,
           name: `Expert_${idx}`,
-          provider: 'official',
+          provider: 'openai',
           model: '',
           temperature: 1.0,
         })

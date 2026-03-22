@@ -45,7 +45,7 @@ function normalizeLmstudioUrl(url?: string): string {
 }
 
 const ModelCreators: Record<string, (opts: any) => BaseChatModel> = {
-  official: (opts: OpenAIOptions) => {
+  openai: (opts: OpenAIOptions) => {
     const modelName = opts.model || 'gpt-5.2'
     return new ChatOpenAI({
       modelName,

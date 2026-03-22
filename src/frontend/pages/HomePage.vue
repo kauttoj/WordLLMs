@@ -413,6 +413,17 @@
             </label>
           </div>
         </div>
+        <div v-if="incompleteResponse" class="flex items-center gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-1.5 text-xs text-warning">
+          <AlertTriangle :size="14" class="shrink-0" />
+          <span class="flex-1">{{ $t('responseIncomplete') }}</span>
+          <button
+            class="shrink-0 cursor-pointer rounded border-none bg-warning/20 px-2 py-0.5 text-xs text-warning hover:bg-warning/30"
+            @click="retryLastMessage"
+          >
+            <RotateCcw :size="12" class="mr-1 inline-block align-middle" />
+            {{ $t('retry') }}
+          </button>
+        </div>
         <div
           class="flex min-w-12 flex-1 min-h-0 flex-col gap-1 rounded-md border border-border bg-surface p-2 focus-within:border-accent"
           @dragover="handleDragOver"
@@ -446,7 +457,7 @@
             <textarea
               ref="inputTextarea"
               v-model="userInput"
-              class="placeholder::text-secondary block flex-1 self-stretch resize-none overflow-y-auto border-none bg-transparent py-2 text-xs leading-normal text-main outline-none placeholder:text-xs"
+              class="placeholder::text-secondary block flex-1 self-stretch resize-none overflow-y-auto border-none bg-transparent py-2 text-sm leading-[1.4] text-main outline-none placeholder:text-sm"
               :placeholder="
                 mode === 'ask'
                   ? $t('askAnything')
@@ -475,7 +486,7 @@
               v-else
               class="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-accent text-white disabled:cursor-not-allowed disabled:bg-accent/50"
               title="Send"
-              :disabled="!userInput.trim()"
+              :disabled="!userInput.trim() || incompleteResponse"
               @click="sendMessage"
             >
               <Send :size="18" />
@@ -508,6 +519,7 @@
 import { AIMessage, HumanMessage, Message, SystemMessage } from '@langchain/core/messages'
 import { useStorage } from '@vueuse/core'
 import {
+  AlertTriangle,
   BotMessageSquare,
   CheckCircle,
   Copy,
@@ -760,7 +772,7 @@ const contextStatsWarning = computed(() => {
   const provider = mode.value === 'multiagent'
     ? (multiAgentConfig.value?.overseer.provider ?? settingForm.value.api)
     : settingForm.value.api
-  const providerPrefix = provider === 'official' ? 'official' : provider
+  const providerPrefix = provider
   const maxKey = `${providerPrefix}MaxContextTokens` as keyof typeof settingForm.value
   const max = Number(settingForm.value[maxKey]) || 128000
   return currentTokenEstimate.value > max * 0.7
@@ -853,7 +865,7 @@ const loadMultiAgentConfig = (): MultiAgentConfig | null => {
         parsed.experts.push({
           id: `expert_${idx}`,
           name: `Expert_${idx}`,
-          provider: 'official',
+          provider: 'openai',
           model: '',
           temperature: 1.0,
         })
@@ -920,6 +932,7 @@ const readOnlyMode = useStorage('readOnlyMode', false)
 const insertType = ref<insertTypes>('replace')
 
 const errorIssue = ref<boolean | string | null>(false)
+const incompleteResponse = ref(false)
 
 const displayHistory = computed(() => {
   return history.value.filter(msg => !(msg instanceof SystemMessage))
@@ -997,8 +1010,8 @@ const currentModelOptions = computed(() => {
   let customModels: string[] = []
 
   switch (settingForm.value.api) {
-    case 'official':
-      presetOptions = settingPreset.officialModelSelect.optionList || []
+    case 'openai':
+      presetOptions = settingPreset.openaiModelSelect.optionList || []
       customModels = getCustomModels('customModels', 'customModel')
       break
     case 'anthropic':
@@ -1024,6 +1037,10 @@ const currentModelOptions = computed(() => {
     case 'lmstudio':
       customModels = getCustomModels('lmstudioCustomModels', 'lmstudioCustomModel')
       break
+    case 'togetherai':
+      presetOptions = settingPreset.togetheraiModelSelect.optionList || []
+      customModels = getCustomModels('togetheraiCustomModels', 'togetheraiCustomModel')
+      break
     default:
       return []
   }
@@ -1046,8 +1063,8 @@ const shouldShowModelSelector = computed(() => {
 const currentModelSelect = computed({
   get() {
     switch (settingForm.value.api) {
-      case 'official':
-        return settingForm.value.officialModelSelect
+      case 'openai':
+        return settingForm.value.openaiModelSelect
       case 'anthropic':
         return settingForm.value.anthropicModelSelect
       case 'gemini':
@@ -1060,14 +1077,16 @@ const currentModelSelect = computed({
         return settingForm.value.azureModelSelect
       case 'lmstudio':
         return settingForm.value.lmstudioModelSelect
+      case 'togetherai':
+        return settingForm.value.togetheraiModelSelect
       default:
         return ''
     }
   },
   set(value) {
     switch (settingForm.value.api) {
-      case 'official':
-        settingForm.value.officialModelSelect = value
+      case 'openai':
+        settingForm.value.openaiModelSelect = value
         localStorage.setItem(localStorageKey.model, value)
         break
       case 'anthropic':
@@ -1094,6 +1113,10 @@ const currentModelSelect = computed({
         settingForm.value.lmstudioModelSelect = value
         localStorage.setItem(localStorageKey.lmstudioModel, value)
         break
+      case 'togetherai':
+        settingForm.value.togetheraiModelSelect = value
+        localStorage.setItem(localStorageKey.togetheraiModel, value)
+        break
     }
   },
 })
@@ -1118,6 +1141,7 @@ async function startNewChat() {
   currentBotMessageIndex.value = null
   agentResponseMessageIndex.value = null
   threadId.value = uuidv4()
+  incompleteResponse.value = false
   contextStats.value = { chars: 0, tokens: 0 }
   liveCharsDelta.value = 0
 
@@ -1195,7 +1219,7 @@ function stopDrag() {
 }
 
 async function sendMessage() {
-  if (!userInput.value.trim() || loading.value) return
+  if (!userInput.value.trim() || loading.value || incompleteResponse.value) return
   if (!checkApiKey()) return
 
   const userMessage = userInput.value.trim()
@@ -1247,7 +1271,8 @@ async function sendMessage() {
     } else {
       console.error(error)
       messageUtil.error(t('failedToResponse'))
-      await cleanupFailedResponseAndSave()
+      incompleteResponse.value = true
+      await saveConversationToThread()
     }
   } finally {
     loading.value = false
@@ -1292,16 +1317,16 @@ async function processChat(
   }
   // Build provider configuration
   const providerConfigs: Record<string, any> = {
-    official: {
-      provider: 'official',
+    openai: {
+      provider: 'openai',
       config: {
-        apiKey: settings.officialAPIKey,
-        baseURL: settings.officialBasePath,
+        apiKey: settings.openaiAPIKey,
+        baseURL: settings.openaiBasePath,
         dangerouslyAllowBrowser: true,
       },
-      maxContextTokens: settings.officialMaxContextTokens,
-      temperature: settings.officialTemperature,
-      model: settings.officialModelSelect,
+      maxContextTokens: settings.openaiMaxContextTokens,
+      temperature: settings.openaiTemperature,
+      model: settings.openaiModelSelect,
     },
     anthropic: {
       provider: 'anthropic',
@@ -1348,6 +1373,13 @@ async function processChat(
       temperature: settings.lmstudioTemperature,
       maxContextTokens: settings.lmstudioMaxContextTokens,
     },
+    togetherai: {
+      provider: 'togetherai',
+      togetheraiAPIKey: settings.togetheraiAPIKey,
+      togetheraiModel: settings.togetheraiModelSelect,
+      temperature: settings.togetheraiTemperature,
+      maxContextTokens: settings.togetheraiMaxContextTokens,
+    },
   }
 
   const currentConfig = providerConfigs[provider]
@@ -1382,7 +1414,7 @@ async function processChat(
     const config = { ...baseConfig }
 
     // Update model based on provider type
-    if (provider === 'official') {
+    if (provider === 'openai') {
       config.model = model
     } else if (provider === 'anthropic') {
       config.anthropicModel = model
@@ -1621,7 +1653,8 @@ async function processChat(
       messageUtil.error(t('somethingWentWrong'))
     }
     errorIssue.value = null
-    await cleanupFailedResponseAndSave()
+    incompleteResponse.value = true
+    await saveConversationToThread()
     return
   }
 
@@ -1709,7 +1742,7 @@ function cancelEdit() {
 
 async function submitEdit() {
   const editedText = editText.value.trim()
-  if (!editedText || loading.value) return
+  if (!editedText || loading.value || incompleteResponse.value) return
   const index = editingMessageIndex.value
   if (index === null) return
 
@@ -1734,7 +1767,7 @@ async function submitEdit() {
 }
 
 async function forkFromMessage(index: number) {
-  if (loading.value) return
+  if (loading.value || incompleteResponse.value) return
 
   const turn = getTurnForHumanMessageIndex(index)
   const newThreadId = uuidv4()
@@ -1766,6 +1799,7 @@ async function forkFromMessage(index: number) {
   forkedMetadata.forEach((v, k) => messageMetadata.set(k, v))
   forkedAttachments.forEach((v, k) => messageAttachmentsMap.set(k, v))
   threadId.value = newThreadId
+  incompleteResponse.value = false
 
   // Return fork-point message to input box for re-editing
   userInput.value = forkPointText
@@ -1808,6 +1842,7 @@ async function retryLastMessage() {
   }
 
   truncateHistoryAndMaps(lastHumanIndex)
+  incompleteResponse.value = false
 
   // Re-register attachments for the retried message (processChat pushes user msg at this index)
   if (savedAttachments?.length) {
@@ -1829,7 +1864,8 @@ async function retryLastMessage() {
     } else {
       console.error(error)
       messageUtil.error(t('failedToResponse'))
-      await cleanupFailedResponseAndSave()
+      incompleteResponse.value = true
+      await saveConversationToThread()
     }
   } finally {
     loading.value = false
@@ -1846,11 +1882,12 @@ watch(loading, val => {
 function checkApiKey() {
   const auth = {
     type: settingForm.value.api as supportedPlatforms,
-    apiKey: settingForm.value.officialAPIKey,
+    apiKey: settingForm.value.openaiAPIKey,
     azureAPIKey: settingForm.value.azureAPIKey,
     geminiAPIKey: settingForm.value.geminiAPIKey,
     groqAPIKey: settingForm.value.groqAPIKey,
     anthropicAPIKey: settingForm.value.anthropicAPIKey,
+    togetheraiAPIKey: settingForm.value.togetheraiAPIKey,
   }
   if (!checkAuth(auth)) {
     messageUtil.error(t('noAPIKey'))
@@ -2145,6 +2182,7 @@ async function saveConversationToThread() {
 }
 
 async function loadThreadHistory(targetThreadId: string) {
+  incompleteResponse.value = false
   try {
     const thread = await fetchThread(targetThreadId)
 

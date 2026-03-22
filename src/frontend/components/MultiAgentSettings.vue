@@ -239,7 +239,7 @@ const formatterTemperature = computed({
 
 const getModelsForProvider = (provider: string): string[] => {
   switch (provider) {
-    case 'official':
+    case 'openai':
       return availableModels
     case 'anthropic':
       return availableModelsForAnthropic

@@ -50,7 +50,26 @@
       "Bash(xargs grep -l \"systemPrompt\")",
       "Bash(xargs grep -l \"attachment\")",
       "Bash(python -c \"from src.backend.file_processing import parse_file, format_attachments_for_message; print\\(''Backend imports OK''\\)\")",
-      "Bash(sed 's/.*name: //')"
+      "Bash(sed 's/.*name: //')",
+      "Bash(grep -n \"max_retries\" \"c:/code/WordLLMs/src/backend/providers/\"*.py)",
+      "Bash(grep -n \"case ''error''\" \"c:\\\\code\\\\WordLLMs\\\\src\\\\frontend\\\\api\\\\backend.ts\")",
+      "Bash(find /c/code/WordLLMs -name tailwind.config.* -type f)",
+      "Bash(grep -r \"font-size\\\\|font-family\" /c/code/WordLLMs/src/frontend --include=*.vue --include=*.css)",
+      "WebFetch(domain:docs.langchain.com)",
+      "Bash(.venv/Scripts/pip show:*)",
+      "Bash(.venv/Scripts/python -c \"import langchain_anthropic; print\\(langchain_anthropic.__version__\\)\")",
+      "Bash(.venv/Scripts/python -c \"import langchain_core; print\\(langchain_core.__version__\\)\")",
+      "Bash(.venv/Scripts/python -m pip show langchain-anthropic)",
+      "Bash(.venv/Scripts/python -c \"from importlib.metadata import version; print\\(''langchain-anthropic:'', version\\(''langchain-anthropic''\\)\\)\")",
+      "Bash(.venv/Scripts/python -c \"from importlib.metadata import version; print\\(''langchain-anthropic:'', version\\(''langchain-anthropic''\\)\\); print\\(''langchain-core:'', version\\(''langchain-core''\\)\\)\")",
+      "Bash(.venv/Scripts/python -m ensurepip)",
+      "Bash(.venv/Scripts/python -m pip install langchain-core==1.2.14)",
+      "Bash(.venv/Scripts/python -m pip install langchain-openai==1.1.7 langchain-together)",
+      "Bash(.venv/Scripts/python -m pip install -r requirements.txt)",
+      "Bash(.venv/Scripts/python -c \"from langchain_anthropic import ChatAnthropic; print\\(''langchain-anthropic imports OK''\\)\")",
+      "Bash(.venv/Scripts/python -c \"from src.backend.providers.base import create_model; print\\(''providers import OK''\\)\")",
+      "WebFetch(domain:docs.together.ai)",
+      "WebFetch(domain:console.groq.com)"
     ]
   }
 }

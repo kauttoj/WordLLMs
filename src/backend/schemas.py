@@ -51,7 +51,11 @@ class AnthropicCredentials(BaseModel):
     api_key: str
 
 
-Credentials = OpenAICredentials | AzureCredentials | GeminiCredentials | GroqCredentials | OllamaCredentials | LmstudioCredentials | AnthropicCredentials
+class TogetherAICredentials(BaseModel):
+    api_key: str
+
+
+Credentials = OpenAICredentials | AzureCredentials | GeminiCredentials | GroqCredentials | OllamaCredentials | LmstudioCredentials | AnthropicCredentials | TogetherAICredentials
 
 
 def to_langchain_messages(messages: list[Message]) -> list[BaseMessage]:
@@ -91,7 +95,7 @@ def from_langchain_message(msg: BaseMessage) -> Message:
 
 class ChatRequest(BaseModel):
     messages: list[Message]
-    provider: Literal["openai", "azure", "gemini", "groq", "ollama", "lmstudio", "anthropic"]
+    provider: Literal["openai", "azure", "gemini", "groq", "ollama", "lmstudio", "anthropic", "togetherai"]
     model: str
     credentials: dict[str, Any]
     temperature: float = Field(default=1.0, ge=0, le=2)
@@ -107,7 +111,7 @@ class ChatRequest(BaseModel):
 
 class AgentRequest(BaseModel):
     messages: list[Message]
-    provider: Literal["openai", "azure", "gemini", "groq", "ollama", "lmstudio", "anthropic"]
+    provider: Literal["openai", "azure", "gemini", "groq", "ollama", "lmstudio", "anthropic", "togetherai"]
     model: str
     credentials: dict[str, Any]
     tools: list[str] = Field(default_factory=list)
@@ -134,7 +138,7 @@ class ClientToolResult(BaseModel):
 class AgentContinueRequest(BaseModel):
     session_id: str
     tool_results: list[ClientToolResult]
-    provider: Literal["openai", "azure", "gemini", "groq", "ollama", "lmstudio", "anthropic"]
+    provider: Literal["openai", "azure", "gemini", "groq", "ollama", "lmstudio", "anthropic", "togetherai"]
     model: str
     credentials: dict[str, Any]
     temperature: float = Field(default=1, ge=0, le=2)
@@ -157,7 +161,7 @@ class SSEEvent(BaseModel):
 
 class MultiAgentExpertConfig(BaseModel):
     """Configuration for one expert model."""
-    provider: Literal["openai", "azure", "gemini", "groq", "ollama", "lmstudio", "anthropic"]
+    provider: Literal["openai", "azure", "gemini", "groq", "ollama", "lmstudio", "anthropic", "togetherai"]
     model: str
     credentials: dict[str, Any]
     temperature: float = Field(default=1, ge=0, le=2)

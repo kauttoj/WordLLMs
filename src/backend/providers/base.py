@@ -51,7 +51,7 @@ def _import_provider(name: str):
 
 
 def create_model(
-    provider: Literal["openai", "azure", "gemini", "groq", "ollama", "lmstudio", "anthropic"],
+    provider: Literal["openai", "azure", "gemini", "groq", "ollama", "lmstudio", "anthropic", "togetherai"],
     model: str,
     credentials: dict[str, Any],
     temperature: float = 1.0,
@@ -80,5 +80,8 @@ def create_model(
     elif provider == "anthropic":
         mod = _import_provider("anthropic")
         return mod.create_anthropic_model(model, credentials, temperature, timeout, max_retries)
+    elif provider == "togetherai":
+        mod = _import_provider("togetherai")
+        return mod.create_togetherai_model(model, credentials, temperature, timeout, max_retries)
     else:
         raise ValueError(f"Unknown provider: {provider}")

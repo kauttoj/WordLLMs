@@ -15,7 +15,7 @@ export const localStorageKey = {
   historyDbPath: 'historyDbPath',
   tavilyApiKey: 'tavilyApiKey',
   threadId: 'threadId',
-  // official api
+  // openai api
   apiKey: 'apiKey',
   model: 'model',
   customModel: 'customModel',
@@ -68,6 +68,13 @@ export const localStorageKey = {
   anthropicCustomModels: 'anthropicCustomModels',
   anthropicTemperature: 'anthropicTemperature',
   anthropicMaxContextTokens: 'anthropicMaxContextTokens',
+  // togetherai api
+  togetheraiAPIKey: 'togetheraiAPIKey',
+  togetheraiTemperature: 'togetheraiTemperature',
+  togetheraiMaxContextTokens: 'togetheraiMaxContextTokens',
+  togetheraiModel: 'togetheraiModel',
+  togetheraiCustomModel: 'togetheraiCustomModel',
+  togetheraiCustomModels: 'togetheraiCustomModels',
   // mcp
   enabledMcpTools: 'enabledMcpTools',
   // proxy

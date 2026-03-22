@@ -44,17 +44,20 @@ export const languageMap: IStringKeyMap = {
 }
 
 export const availableAPIs: IStringKeyMap = {
-  OpenAI: 'official',
+  OpenAI: 'openai',
   Anthropic: 'anthropic',
   Azure: 'azure',
   Gemini: 'gemini',
   Ollama: 'ollama',
   Groq: 'groq',
+  TogetherAI: 'togetherai',
   LMStudio: 'lmstudio',
 }
 
-// official API 可用的模型
+// OpenAI API available models
 export const availableModels: string[] = [
+  'gpt-5.4-pro',
+  'gpt-5.4-mini',
   'gpt-5.4',
   'gpt-5.2-pro',
   'gpt-5.2',
@@ -85,19 +88,25 @@ export const availableModelsForOllama: string[] = [
 ]
 
 export const availableModelsForGroq: string[] = [
-  'llama-3.1-8b-instant',
   'llama-3.3-70b-versatile',
-  'meta-llama/llama-guard-4-12b',
+  'llama-3.1-8b-instant',
+  'meta-llama/llama-4-scout-17b-16e-instruct',
   'openai/gpt-oss-120b',
   'openai/gpt-oss-20b',
-  'whisper-large-v3',
-  'whisper-large-v3-turbo',
-  'meta-llama/llama-4-maverick-17b-128e-instruct',
-  'meta-llama/llama-4-scout-17b-16e-instruct',
-  'meta-llama/llama-prompt-guard-2-22m',
-  'meta-llama/llama-prompt-guard-2-86m',
-  'moonshotai/kimi-k2-instruct-0905',
   'qwen/qwen3-32b',
+  'moonshotai/kimi-k2-instruct-0905',
+]
+
+// Together AI available models
+export const availableModelsForTogetherAI: string[] = [
+  'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8',
+  'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+  'Qwen/Qwen3.5-397B-A17B',
+  'deepseek-ai/DeepSeek-V3.1',
+  'deepseek-ai/DeepSeek-R1',
+  'mistralai/Mistral-Small-24B-Instruct-2501',
+  'moonshotai/Kimi-K2.5',
+  'google/gemma-3n-E4B-it',
 ]
 
 // Anthropic API available models

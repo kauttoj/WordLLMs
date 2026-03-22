@@ -127,6 +127,7 @@ langchain-core==1.2.14
 langchain-google-genai==4.2.0
 langchain-groq==1.1.1
 langchain-ollama==1.0.1
+langchain-together
 langchain-openai==1.1.7
 langchain-tavily==0.2.17
 langgraph==1.0.9

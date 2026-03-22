@@ -28,7 +28,23 @@ from .agents.chat_multiagent import stream_multiagent, resume_multiagent
 from .conversation_store import ConversationStore, DEFAULT_DB_PATH, _DATA_DIR
 from .mcp_integration import MCPClientManager
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 DIST_DIR = Path(__file__).parent.parent.parent / "dist"
+
+# Local inference providers run on CPU and can be extremely slow.
+# Multiply their timeout to avoid premature disconnects.
+_LOCAL_PROVIDERS = {"ollama", "lmstudio"}
+_LOCAL_TIMEOUT_MULTIPLIER = 10
+
+def adjust_timeout_for_provider(timeout: int, provider: str) -> int:
+    if provider in _LOCAL_PROVIDERS:
+        adjusted = timeout * _LOCAL_TIMEOUT_MULTIPLIER
+        logger.info(f"Local provider '{provider}': timeout {timeout}s -> {adjusted}s")
+        return adjusted
+    return timeout
 CONFIG_PATH = _DATA_DIR / "config.json"
 
 
@@ -161,6 +177,7 @@ async def context_stats(conversation_id: str):
 @app.post("/api/chat")
 async def chat_completion(request: ChatRequest):
     truncation_warnings = inject_attachments(request)
+    llm_timeout = adjust_timeout_for_provider(request.llm_timeout, request.provider)
     async def generate():
         if truncation_warnings:
             yield {"event": "warning", "data": json.dumps({"warnings": truncation_warnings})}
@@ -170,7 +187,7 @@ async def chat_completion(request: ChatRequest):
                 model=request.model,
                 credentials=request.credentials,
                 temperature=request.temperature,
-                timeout=request.llm_timeout,
+                timeout=llm_timeout,
             )
             async for event in stream_chat(
                 model=model,
@@ -181,7 +198,7 @@ async def chat_completion(request: ChatRequest):
                 conversation_id=request.conversation_id,
                 conversation_store=conversation_store,
                 max_context_tokens=request.max_context_tokens,
-                llm_timeout=request.llm_timeout,
+                llm_timeout=llm_timeout,
             ):
                 yield {"event": event["event"], "data": json.dumps(event["data"])}
         except Exception as e:
@@ -192,6 +209,7 @@ async def chat_completion(request: ChatRequest):
 @app.post("/api/agent")
 async def agent_completion(request: AgentRequest):
     truncation_warnings = inject_attachments(request)
+    llm_timeout = adjust_timeout_for_provider(request.llm_timeout, request.provider)
     async def generate():
         if truncation_warnings:
             yield {"event": "warning", "data": json.dumps({"warnings": truncation_warnings})}
@@ -201,7 +219,7 @@ async def agent_completion(request: AgentRequest):
                 model=request.model,
                 credentials=request.credentials,
                 temperature=request.temperature,
-                timeout=request.llm_timeout,
+                timeout=llm_timeout,
             )
 
             if not request.tools:
@@ -222,7 +240,7 @@ async def agent_completion(request: AgentRequest):
                 conversation_id=request.conversation_id,
                 conversation_store=conversation_store,
                 max_context_tokens=request.max_context_tokens,
-                llm_timeout=request.llm_timeout,
+                llm_timeout=llm_timeout,
             ):
                 yield {"event": event["event"], "data": json.dumps(event["data"])}
         except Exception as e:
@@ -233,6 +251,7 @@ async def agent_completion(request: AgentRequest):
 # --- Agent Continue Endpoint (LangGraph Resume) ---
 @app.post("/api/agent/continue")
 async def agent_continue(request: AgentContinueRequest):
+    llm_timeout = adjust_timeout_for_provider(request.llm_timeout, request.provider)
     async def generate():
         try:
             # Reconstruct model for the resume step
@@ -241,7 +260,7 @@ async def agent_continue(request: AgentContinueRequest):
                 model=request.model,
                 credentials=request.credentials,
                 temperature=request.temperature,
-                timeout=request.llm_timeout,
+                timeout=llm_timeout,
             )
 
             # Use the same filtered tool list as the original /api/agent call
@@ -258,7 +277,7 @@ async def agent_continue(request: AgentContinueRequest):
                 filter_thinking=request.filter_thinking,
                 conversation_store=conversation_store,
                 max_context_tokens=request.max_context_tokens,
-                llm_timeout=request.llm_timeout,
+                llm_timeout=llm_timeout,
                 recursion_limit=request.recursion_limit,
             ):
                 yield {"event": event["event"], "data": json.dumps(event["data"])}
@@ -271,6 +290,15 @@ async def agent_continue(request: AgentContinueRequest):
 @app.post("/api/multiagent")
 async def multiagent_completion(request: MultiAgentRequest):
     truncation_warnings = inject_attachments(request)
+    # If any provider in the request is local, apply the timeout multiplier
+    all_providers = [cfg.provider for cfg in request.experts] + [request.overseer.provider]
+    if request.synthesizer:
+        all_providers.append(request.synthesizer.provider)
+    if request.formatter:
+        all_providers.append(request.formatter.provider)
+    llm_timeout = request.llm_timeout
+    if any(p in _LOCAL_PROVIDERS for p in all_providers):
+        llm_timeout = adjust_timeout_for_provider(request.llm_timeout, next(p for p in all_providers if p in _LOCAL_PROVIDERS))
     async def generate():
         if truncation_warnings:
             yield {"event": "warning", "data": json.dumps({"warnings": truncation_warnings})}
@@ -284,7 +312,7 @@ async def multiagent_completion(request: MultiAgentRequest):
                     model=cfg.model,
                     credentials=cfg.credentials,
                     temperature=cfg.temperature,
-                    timeout=request.llm_timeout,
+                    timeout=llm_timeout,
                 ))
                 expert_max_context_tokens.append(cfg.max_context_tokens)
 
@@ -294,7 +322,7 @@ async def multiagent_completion(request: MultiAgentRequest):
                 model=request.overseer.model,
                 credentials=request.overseer.credentials,
                 temperature=request.overseer.temperature,
-                timeout=request.llm_timeout,
+                timeout=llm_timeout,
             )
             overseer_max_context_tokens = request.overseer.max_context_tokens
 
@@ -305,7 +333,7 @@ async def multiagent_completion(request: MultiAgentRequest):
                     model=request.synthesizer.model,
                     credentials=request.synthesizer.credentials,
                     temperature=request.synthesizer.temperature,
-                    timeout=request.llm_timeout,
+                    timeout=llm_timeout,
                 )
                 synthesizer_max_context_tokens = request.synthesizer.max_context_tokens
             else:
@@ -320,7 +348,7 @@ async def multiagent_completion(request: MultiAgentRequest):
                     model=request.formatter.model,
                     credentials=request.formatter.credentials,
                     temperature=request.formatter.temperature,
-                    timeout=request.llm_timeout,
+                    timeout=llm_timeout,
                 )
 
             # 5. Resolve Tools
@@ -348,7 +376,7 @@ async def multiagent_completion(request: MultiAgentRequest):
                 expert_max_context_tokens=expert_max_context_tokens,
                 overseer_max_context_tokens=overseer_max_context_tokens,
                 synthesizer_max_context_tokens=synthesizer_max_context_tokens,
-                llm_timeout=request.llm_timeout,
+                llm_timeout=llm_timeout,
                 legacy_mode=(request.operating_mode == "legacy"),
                 formatter_model=formatter_model,
                 expert_full_history=request.expert_full_history,

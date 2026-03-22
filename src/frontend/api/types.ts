@@ -18,7 +18,7 @@ export interface BaseChatCompletionOptions {
 }
 
 export interface OpenAIOptions extends BaseChatCompletionOptions {
-  provider: 'official'
+  provider: 'openai'
   model?: string
   config: {
     apiKey: string
@@ -66,6 +66,12 @@ export interface AnthropicOptions extends BaseChatCompletionOptions {
   anthropicAPIKey: string
 }
 
+export interface TogetherAIOptions extends BaseChatCompletionOptions {
+  provider: 'togetherai'
+  togetheraiModel: string
+  togetheraiAPIKey: string
+}
+
 export type ProviderOptions =
   | OpenAIOptions
   | OllamaOptions
@@ -74,8 +80,9 @@ export type ProviderOptions =
   | AzureOptions
   | LmstudioOptions
   | AnthropicOptions
+  | TogetherAIOptions
 
-type supportedProviders = 'official' | 'ollama' | 'groq' | 'gemini' | 'azure' | 'lmstudio' | 'anthropic'
+type supportedProviders = 'openai' | 'ollama' | 'groq' | 'gemini' | 'azure' | 'lmstudio' | 'anthropic' | 'togetherai'
 // Agent options with tools support
 export interface AgentOptions extends BaseChatCompletionOptions {
   provider: supportedProviders
@@ -108,6 +115,8 @@ export interface AgentOptions extends BaseChatCompletionOptions {
   lmstudioModel?: string
   anthropicModel?: string
   anthropicAPIKey?: string
+  togetheraiModel?: string
+  togetheraiAPIKey?: string
 }
 
 // MultiAgent expert configuration
@@ -136,6 +145,8 @@ export interface MultiAgentExpertConfig {
   lmstudioModel?: string
   anthropicModel?: string
   anthropicAPIKey?: string
+  togetheraiModel?: string
+  togetheraiAPIKey?: string
 }
 
 // MultiAgent options

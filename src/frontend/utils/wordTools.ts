@@ -180,14 +180,11 @@ function parseOoxml(ooxml: string): ParsedDocument {
         if (type === 'begin') {
           fieldDepth++
           inFieldInstruction = true
-          pendingBreak = true
         } else if (type === 'separate') {
           inFieldInstruction = false
-          pendingBreak = true
         } else if (type === 'end') {
           fieldDepth = Math.max(0, fieldDepth - 1)
           if (fieldDepth === 0) inFieldInstruction = false
-          pendingBreak = true
         }
         continue
       }
