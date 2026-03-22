@@ -42,7 +42,7 @@ When you open the WordLLMs pane, you will see a chat interface. The figure below
 | 11 | **History** | Browse and restore previous conversations. |
 | 12 | **User message actions** | Hover over your message to reveal: Edit (pencil), Fork (branch), Retry (arrow), Copy. |
 | 13 | **AI response actions** | Hover over an AI response to reveal: Replace selection in Word, Insert at cursor, Copy to clipboard. |
-| 14 | **Context counter** | Shows how many characters/tokens the current conversation uses vs. the model's context limit. |
+| 14 | **Context counter** | Shows how many characters/tokens the current conversation uses. |
 
 The **Read-only mode banner** (the orange bar visible at the top of the conversation area) appears whenever Read Only mode is active, so you always know the agent cannot make changes.
 
@@ -145,7 +145,7 @@ A Role Prompt (also called a System Prompt) gives the AI a persistent persona or
 
 **Built-in presets:**
 - **Data Scientist** — Analytical, evidence-based, quantitative thinking
-- **Academic Writer** — Scholarly tone, citation-aware
+- **Academic Writer** — Scholarly tone
 - **Marketing Assistant** — Persuasive, audience-focused copy
 
 **How to use:**
@@ -232,10 +232,10 @@ When MultiAgent mode is selected, two controls appear:
 - **Number of experts** (1–4) — How many experts work on the task
 - **Mode** — Parallel or Collaborative
 
-Each expert's model and settings are configured in **Settings → Multi-Agent**. You can give each expert a custom name and assign them different AI models. For example:
-- Expert 1: GPT-4 (strong reasoning)
-- Expert 2: Claude (strong writing)
-- Expert 3: Gemini (fast and broad knowledge)
+Each expert's model and settings are configured in **Settings → Multi-Agent**. You can assign them different AI models. For example:
+- Expert 1: GPT-5.4 
+- Expert 2: Claude Opus 4.6 
+- Expert 3: Gemini 3.1 Pro
 
 ### Parallel Mode
 All experts receive your task simultaneously and work independently. Once all are done, a **synthesizer** agent reads all their responses and combines them into one final answer. This is the fastest option and works well when you want diverse perspectives merged together.
@@ -308,14 +308,6 @@ Open Settings by clicking the gear icon. The settings panel has 7 tabs along the
 - Enable **Read Only** mode when you want the AI to analyze your document without risk of changes.
 - You can disable specific tools in **Settings → Tools** if you want to restrict what the agent is allowed to do.
 - You can also lower the **Agent Max Iterations** to prevent the agent from taking too many steps on a single task.
-
-**For creative writing:**
-- Increase the **temperature** (towards 1.5–2.0) for more imaginative, varied output.
-- Try a custom **Role Prompt** like "You are a creative fiction editor who specializes in vivid, sensory language."
-
-**For precise or technical tasks:**
-- Lower the **temperature** (towards 0–0.3) for more focused, consistent answers.
-- Use the **Data Scientist** or **Academic Writer** system prompt preset.
 
 **Working with long documents:**
 - The AI can only read as much text as fits in its context window. For very long documents, be specific about which section you want it to work on, or use "Include Selection" with only the relevant portion selected.
