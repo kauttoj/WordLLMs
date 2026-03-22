@@ -24,7 +24,7 @@
   </p>
 </div>
 
-> **Warning**: This is the first release of WordLLMs. The application is still under active development and testing. Expect bugs, breaking changes, and incomplete features. Bug reports and feedback are welcome via [Issues](https://github.com/kauttoj/WordLLMs/issues).
+> **Warning**: This application is still under active development and testing. Expect bugs, breaking changes, and incomplete features. Bug reports and feedback are welcome via [Issues](https://github.com/kauttoj/WordLLMs/issues).
 
 > Starting from [Word GPT Plus](https://github.com/Kuingsmile/word-GPT-Plus), WordLLMs is a complete overhaul with a Python backend, multi-agent orchestration, revised tools, file attachments, GUI enchancements and support for all major Large Language Model (LLM) providers including local models.
 
