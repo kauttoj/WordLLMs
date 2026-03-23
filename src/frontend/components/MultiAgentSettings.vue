@@ -35,7 +35,9 @@
               {{ model }}
             </option>
           </select>
-          <CustomInput v-else v-model="expert.model" :title="''" />
+          <select v-else disabled class="cursor-not-allowed rounded-md border px-3 py-2 opacity-50">
+            <option value="">{{ t('noModelsConfigured') }}</option>
+          </select>
         </div>
 
         <CustomInput
@@ -71,7 +73,9 @@
               {{ model }}
             </option>
           </select>
-          <CustomInput v-else v-model="config.overseer.model" :title="''" />
+          <select v-else disabled class="cursor-not-allowed rounded-md border px-3 py-2 opacity-50">
+            <option value="">{{ t('noModelsConfigured') }}</option>
+          </select>
         </div>
         <CustomInput
           v-model.number="config.overseer.temperature"
@@ -108,7 +112,9 @@
                 {{ model }}
               </option>
             </select>
-            <CustomInput v-else v-model="formatterModel" :title="''" />
+            <select v-else disabled class="cursor-not-allowed rounded-md border px-3 py-2 opacity-50">
+            <option value="">{{ t('noModelsConfigured') }}</option>
+          </select>
           </div>
           <CustomInput
             v-model.number="formatterTemperature"
@@ -181,6 +187,7 @@ import {
   availableModelsForGemini,
   availableModelsForGroq,
   availableModelsForOllama,
+  availableModelsForTogetherAI,
 } from '@/utils/constant'
 
 import CustomInput from './CustomInput.vue'
@@ -257,6 +264,11 @@ const getModelsForProvider = (provider: string): string[] => {
     case 'lmstudio': {
       const lmStored = localStorage.getItem('lmstudioCustomModels')
       return lmStored ? JSON.parse(lmStored) : []
+    }
+    case 'togetherai': {
+      const stored = localStorage.getItem('togetheraiCustomModels')
+      const custom: string[] = stored ? JSON.parse(stored) : []
+      return [...availableModelsForTogetherAI, ...custom]
     }
     default:
       return []

@@ -153,6 +153,7 @@
   "NoAction": "No action",
   "noAPIKey": "No API key provided",
   "NocheckPoints": "No history records",
+  "noModelsConfigured": "No models — configure in Provider Settings",
   "noSystemPrompt": "None",
   "noToolsAvailable": "No tools available",
   "notSupportedProvider": "Unsupported API provider",

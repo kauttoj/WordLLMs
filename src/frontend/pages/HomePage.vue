@@ -1428,6 +1428,8 @@ async function processChat(
       config.azureDeploymentName = model
     } else if (provider === 'lmstudio') {
       config.lmstudioModel = model
+    } else if (provider === 'togetherai') {
+      config.togetheraiModel = model
     }
 
     return config

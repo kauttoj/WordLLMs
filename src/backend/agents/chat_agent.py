@@ -42,7 +42,7 @@ class ThinkingRouter:
     """
     def __init__(self, enabled: bool = True):
         self.enabled = enabled
-        self.in_think = enabled
+        self.in_think = False
         self.buffer = ""
         self.think_start = "<think>"
         self.think_end = "</think>"
@@ -270,7 +270,6 @@ def remove_thinking_tags(text: str, enabled: bool = True) -> str:
     if not enabled:
         return text
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    text = re.sub(r'^.*?</think>', '', text, flags=re.DOTALL)
     return text.strip()
 
 

@@ -738,6 +738,8 @@ function buildExpertConfig(expert: MultiAgentExpertConfig): any {
     creds.base_url = expert.lmstudioEndpoint
   } else if (expert.provider === 'anthropic') {
     creds.api_key = expert.anthropicAPIKey
+  } else if (expert.provider === 'togetherai') {
+    creds.api_key = expert.togetheraiAPIKey
   }
 
   let model: string | undefined
@@ -755,6 +757,8 @@ function buildExpertConfig(expert: MultiAgentExpertConfig): any {
     model = expert.azureDeploymentName
   } else if (expert.anthropicModel) {
     model = expert.anthropicModel
+  } else if (expert.togetheraiModel) {
+    model = expert.togetheraiModel
   }
 
   if (!model) {
