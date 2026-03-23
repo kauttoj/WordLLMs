@@ -50,11 +50,11 @@ The application is powered by a **Python/FastAPI backend** using **LangChain** a
 
 | Provider | Example Models | Notes |
 |----------|---------------|-------|
-| **OpenAI** | GPT-5.2 Pro, GPT-5.2, GPT-5.1, GPT-5 Mini/Nano, GPT-4.1 | Compatible with DeepSeek and other OpenAI-compatible APIs via custom base URL |
+| **OpenAI** | GPT-5.4, GPT-5.4 mini, GPT-5.2, GPT-5.1, GPT-5 Mini/Nano, GPT-4.1 | Compatible with DeepSeek and other OpenAI-compatible APIs via custom base URL |
 | **Anthropic** | Claude Opus 4.6/4.5, Claude Sonnet 4.6/4.5, Claude Haiku 4.5 | |
 | **Google Gemini** | Gemini 3.1 Pro, Gemini 3 Pro/Flash, Gemini 2.5 Pro/Flash | |
 | **Azure OpenAI** | Custom deployment names | Full Azure integration with configurable API versions |
-| **Groq** | Llama 3.3/4, Qwen3, Kimi-K2, GPT-OSS etc. | Ultra-fast inference |
+| **Groq** | Llama 3.3/4, Qwen3.5, Kimi-K2, GPT-OSS etc. | Ultra-fast inference |
 | **Ollama** | Any locally loaded model | Local deployment, fully private |
 | **Together AI** | Large selection of state-of-art open models | |
 | **LM Studio** | Any locally loaded model | Local deployment, fully private |
