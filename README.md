@@ -46,7 +46,7 @@ The application is powered by a **Python/FastAPI backend** using **LangChain** a
 
 ## Features
 
-### 7 AI Providers, All Latest Models (updated regularly)
+### 8 AI Providers, All Latest Models (updated regularly)
 
 | Provider | Example Models | Notes |
 |----------|---------------|-------|
