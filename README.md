@@ -34,7 +34,7 @@ WordLLMs is self-hosted, running locally on your machine storing all data on you
 
 - Web search: If you enable web search tool, LLM sends web queries to Tavily service (https://app.tavily.com). You can disable web search tool completely.
 
-If you use a self-hosted LLM running LMstudio or Ollama, you can run the WordLLM fully offline.
+If you use a self-hosted LLM running LMstudio or Ollama, you can run the WordLLMs fully offline.
 
 ## Introduction
 
@@ -99,7 +99,7 @@ The agent (and multi-agent) modes can manipulate your Word document through Offi
 
 ### MCP Server Integration
 
-Extend your agent with **any MCP (Model Context Protocol) server**. MCP is an open standard for connecting AI tools to external services. WordLLMs can connect to any MCP-compliant server and make its tools available to agents.
+Extend your agent with **any MCP (Model Context Protocol) server**. MCP is an open standard for connecting AI tools to external services. s can connect to any MCP-compliant server and make its tools available to agents.
 
 - Connect to any MCP server by providing its startup command
 - Discovered tools are automatically available in agent and multi-agent modes
@@ -160,39 +160,39 @@ You need an API key from at least one provider:
 
 ## Installation
 
-WordLLMs is essentially a "mini" website inside Word, Word only presents it. As results, you need to serve WordLLMs application outside Word. Choose the method that best suits your needs below. An easier, executable version (Method 3) might be added later.
+s is essentially a "mini" website inside Word, Word only presents it. As results, you need to serve s application outside Word. Choose the method that best suits your needs below. An easier, executable version (Method 3) might be added later.
 
 ### Method 1: Docker Deployment (Recommended)
 
 0. **Install Docker desktop** https://www.docker.com/products/docker-desktop
 
-1. **Choose a folder on your PC** where WordLLMs will store your conversation history. For example: `C:\Users\YourName\WordLLMs`
+1. **Choose a folder on your PC** where s will store your conversation history. For example: `C:\Users\YourName\s`
 
    Create the folder first if it doesn't exist.
 
 2. Pull and run the Docker image. Open **Command Prompt** and at the FIRST time, run:
 
    ```
-   docker pull kauttoj/wordllms
-   docker run -d --name wordllms -p 3000:8000 -v "C:\Users\YourName\WordLLMs:/app/data" kauttoj/wordllms
+   docker pull kauttoj/s
+   docker run -d --name s -p 3000:8000 -v "C:\Users\YourName\s:/app/data" kauttoj/s
    ```
 
-   Replace `C:\Users\YourName\WordLLMs` with the folder you chose in step 1. Keep the `:/app/data` part exactly as shown — that is the path inside the container and must not be changed.
+   Replace `C:\Users\YourName\s` with the folder you chose in step 1. Keep the `:/app/data` part exactly as shown — that is the path inside the container and must not be changed.
 
    > **Note**: Your conversation history is stored in a file on your PC. The `-v` flag is how Docker links your chosen Windows folder to the app running inside the container. Without it, all conversations are permanently lost every time the container stops. The app's file browser can only access folders that were linked this way at startup — you cannot change the folder later from inside the app.
 
    Now, the app should be running in the background. You should see this in the Docker:
 
-   ![Image](https://github.com/kauttoj/WordLLMs/blob/master/public/docker0.png)
+   ![Image](https://github.com/kauttoj/s/blob/master/public/docker0.png)
 
    Later, when you restart your app, click run in Docker
    
-   ![Image](https://github.com/kauttoj/WordLLMs/blob/master/public/docker2.png)
+   ![Image](https://github.com/kauttoj/s/blob/master/public/docker2.png)
 
    or run this command in console:
    
    ```
-   docker start wordllms
+   docker start s
    ```
 
    which restarts the old container without creating a new one. You can learn more at https://www.docker.com/blog/getting-started-with-docker-desktop
@@ -200,13 +200,13 @@ WordLLMs is essentially a "mini" website inside Word, Word only presents it. As 
    How to update new version? First stop (if not stopped) and remove the container from Docker (delete button) or with console:
 
    ```
-   docker stop wordllms 
-   docker rm wordllms
+   docker stop s 
+   docker rm s
    ```
    
    Then repeat those same two pull and run commands as above.
 
-4. Open WordLLMs in Word, go to **Settings** and set **History Database Path** to:
+4. Open s in Word, go to **Settings** and set **History Database Path** to:
    ```
    /app/data/conversations.db
    ```
