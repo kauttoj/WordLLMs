@@ -64,7 +64,7 @@ def _build_tool_sections(tools: list) -> str:
         lines: list[str] = []
         if {'find_and_select_text', 'select_between_text'} <= tool_names:
             lines.append('For short text selections (sentences), use the find-and-select approach. For large sections (5+ sentences), select a range between two text anchors.')
-        lines.append('When searching for text, use only visible text — strip line breaks and special characters from search strings.')
+        lines.append('When searching for text, use only visible text — strip line breaks from search strings.')
         if 'select_between_text' in tool_names:
             lines.append('When selecting by range anchors, choose unique multi-word phrases (3-5 words) that appear only once in the document.')
         strategy.append('## Selection\n' + '\n'.join(f'- {l}' for l in lines))
@@ -177,6 +177,7 @@ Not every task requires document editing. If the user asks a question or wants a
 - Be concise in explanations. Let your edits speak for themselves.
 - Never perform destructive operations (deleting or replacing) unless necessary or asked.
 - Use the minimum number of tool calls needed.
+- Documents may use typographic quotes (\u201c \u201d \u2018 \u2019). Use the exact characters from the document in searches and edits.
 - Edit document in the language of the document. Provide your textual response in {language}."""
     else:
         return f"""You are an AI assistant working in Microsoft Word with read-only document access.

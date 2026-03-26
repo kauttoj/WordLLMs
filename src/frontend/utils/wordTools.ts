@@ -80,30 +80,39 @@ function stripMarkdown(text: string): string {
 }
 
 /**
- * Insert text into a Word range, splitting on \n to create proper paragraphs.
- * Office.js insertText handles \n inconsistently across platforms, so we
- * explicitly use insertParagraph for each line (proven pattern from common.ts).
+ * Normalize line endings, including literal two-character \n sequences that
+ * LLMs sometimes emit instead of real newline characters.
  */
+function normalizeLineBreaks(text: string): string {
+  return text
+    .replace(/\\n/g, '\n') // literal backslash+n → newline
+    .replace(/\r\n/g, '\n') // Windows CRLF → LF
+    .replace(/\r/g, '\n') // old Mac CR → LF
+}
+
 /**
  * Insert text into a Word range, splitting on \n to create proper paragraphs.
  * Returns the last inserted paragraph (for multi-line) so callers can
  * move the cursor to maintain correct ordering across tool calls.
+ * keepStyle=false (default): subsequent paragraphs reset to Normal to prevent
+ * heading style bleeding. keepStyle=true: style inherits from first paragraph.
  */
 function insertTextSafe(
   range: Word.Range,
   text: string,
   location: Word.InsertLocation,
+  keepStyle = false,
 ): Word.Paragraph | null {
-  const lines = text.replace(/\r\n|\r/g, '\n').split('\n')
+  const lines = normalizeLineBreaks(text).split('\n')
   if (lines.length === 1) {
-    range.insertText(text, location)
+    range.insertText(lines[0], location)
     return null
   }
   range.insertText(lines[0], location)
   let lastPara: Word.Paragraph | null = null
   for (let i = 1; i < lines.length; i++) {
     lastPara = range.insertParagraph(lines[i], 'After')
-    lastPara.styleBuiltIn = 'Normal'
+    if (!keepStyle) lastPara.styleBuiltIn = 'Normal'
   }
   return lastPara
 }
@@ -598,7 +607,13 @@ async function getDocumentParsed(context: Word.RequestContext): Promise<{ body: 
   return { body, parsed }
 }
 
-async function trackedReplace(context: Word.RequestContext, range: Word.Range, newText: string): Promise<void> {
+async function trackedReplace(
+  context: Word.RequestContext,
+  range: Word.Range,
+  newText: string,
+  keepStyle = false,
+): Promise<void> {
+  newText = normalizeLineBreaks(newText)
   context.document.load('changeTrackingMode')
   await context.sync()
   const saved = context.document.changeTrackingMode
@@ -607,7 +622,7 @@ async function trackedReplace(context: Word.RequestContext, range: Word.Range, n
   await context.sync()
   context.document.changeTrackingMode = saved
   // Reset style on non-first paragraphs to prevent heading style bleeding
-  if (newText.includes('\n')) {
+  if (!keepStyle && newText.includes('\n')) {
     const paras = range.paragraphs
     paras.load('items')
     await context.sync()
@@ -770,15 +785,20 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
           description: 'Where to insert relative to cursor: "Start", "End", "Before", "After", or "Replace"',
           enum: ['Start', 'End', 'Before', 'After', 'Replace'],
         },
+        keepStyle: {
+          type: 'boolean',
+          description:
+            'If true, paragraphs after \\n inherit the style of the first paragraph instead of resetting to Normal. Use when inserting multiple lines that should share a style (e.g., two Heading2s).',
+        },
       },
       required: ['text'],
     },
     execute: async args => {
-      const { text: rawText, location = 'End' } = args
+      const { text: rawText, location = 'End', keepStyle = false } = args
       const text = stripMarkdown(rawText)
       return Word.run(async context => {
         const range = context.document.getSelection()
-        const lastPara = insertTextSafe(range, text, location as Word.InsertLocation)
+        const lastPara = insertTextSafe(range, text, location as Word.InsertLocation, keepStyle)
         // Move cursor to end of inserted content so consecutive calls
         // insert in correct order instead of reversing
         if (lastPara) {
@@ -801,11 +821,16 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
           type: 'string',
           description: 'The replacement text. Use \\n for paragraph breaks.',
         },
+        keepStyle: {
+          type: 'boolean',
+          description:
+            'If true, paragraphs after \\n inherit the style of the first paragraph instead of resetting to Normal.',
+        },
       },
       required: ['newText'],
     },
     execute: async args => {
-      const { newText: rawNewText } = args
+      const { newText: rawNewText, keepStyle = false } = args
       const newText = stripMarkdown(rawNewText)
       return Word.run(async context => {
         const selection = context.document.getSelection()
@@ -816,7 +841,7 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
           throw new Error('Nothing is selected.')
         }
 
-        await trackedReplace(context, selection, newText)
+        await trackedReplace(context, selection, newText, keepStyle)
         return 'Successfully replaced selected text'
       })
     },
@@ -833,16 +858,21 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
           type: 'string',
           description: 'The text to append. Use \\n for paragraph breaks.',
         },
+        keepStyle: {
+          type: 'boolean',
+          description:
+            'If true, paragraphs after \\n inherit the style of the first paragraph instead of resetting to Normal.',
+        },
       },
       required: ['text'],
     },
     execute: async args => {
-      const { text: rawText } = args
+      const { text: rawText, keepStyle = false } = args
       const text = stripMarkdown(rawText)
       return Word.run(async context => {
         const body = context.document.body
         const range = body.getRange('End')
-        insertTextSafe(range, text, 'End')
+        insertTextSafe(range, text, 'End', keepStyle)
         await context.sync()
         return 'Successfully appended text to document'
       })
@@ -1009,11 +1039,16 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
           type: 'boolean',
           description: 'Whether to match case (default: false)',
         },
+        keepStyle: {
+          type: 'boolean',
+          description:
+            'If true, paragraphs after \\n in the replacement text inherit the style of the first paragraph instead of resetting to Normal.',
+        },
       },
       required: ['searchText', 'replaceText'],
     },
     execute: async args => {
-      const { searchText: rawSearch, replaceText: rawReplace, matchCase = false } = args
+      const { searchText: rawSearch, replaceText: rawReplace, matchCase = false, keepStyle = false } = args
       const searchText = stripNewlines(rawSearch)
       const replaceText = stripMarkdown(rawReplace)
       return Word.run(async context => {
@@ -1026,7 +1061,7 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
 
         // Replace right-to-left to preserve earlier range positions
         for (let i = ranges.length - 1; i >= 0; i--) {
-          await trackedReplace(context, ranges[i], replaceText)
+          await trackedReplace(context, ranges[i], replaceText, keepStyle)
         }
 
         return `Replaced ${ranges.length} occurrence(s) of "${searchText}" with "${replaceText}"`
@@ -1053,11 +1088,16 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
           type: 'boolean',
           description: 'Whether to match case (default: false)',
         },
+        keepStyle: {
+          type: 'boolean',
+          description:
+            'If true, paragraphs after \\n in the replacement text inherit the style of the first paragraph instead of resetting to Normal.',
+        },
       },
       required: ['searchText', 'replaceText'],
     },
     execute: async args => {
-      const { searchText: rawSearch, replaceText: rawReplace, matchCase = false } = args
+      const { searchText: rawSearch, replaceText: rawReplace, matchCase = false, keepStyle = false } = args
       const searchText = stripNewlines(rawSearch)
       const replaceText = stripMarkdown(rawReplace)
       return Word.run(async context => {
@@ -1080,7 +1120,7 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
         if (simpleResults.items.length > 0) {
           console.log(`  [WordTools] Simple search: ${simpleResults.items.length} match(es) in selection`)
           for (let i = simpleResults.items.length - 1; i >= 0; i--) {
-            await trackedReplace(context, simpleResults.items[i], replaceText)
+            await trackedReplace(context, simpleResults.items[i], replaceText, keepStyle)
           }
           return `Replaced ${simpleResults.items.length} occurrence(s) of "${searchText}" in the selection with "${replaceText}"`
         }
@@ -1111,7 +1151,7 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
 
         // Replace right-to-left
         for (let i = inSelection.length - 1; i >= 0; i--) {
-          await trackedReplace(context, inSelection[i], replaceText)
+          await trackedReplace(context, inSelection[i], replaceText, keepStyle)
         }
 
         return `Replaced ${inSelection.length} occurrence(s) of "${searchText}" in the selection with "${replaceText}"`
