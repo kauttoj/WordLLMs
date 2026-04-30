@@ -33,6 +33,7 @@ def create_azure_model(
     temperature: float,
     timeout: int | None = None,
     max_retries: int = 3,
+    reasoning_effort: str = "medium",
 ) -> BaseChatModel:
     """Create an Azure chat model, auto-detecting type from model name."""
     endpoint = credentials.get("endpoint", "")
@@ -43,11 +44,11 @@ def create_azure_model(
     model_type = _detect_model_type(model)
 
     if model_type == "anthropic":
-        return _create_anthropic_model(model, resource, credentials, temperature, timeout, max_retries)
+        return _create_anthropic_model(model, resource, credentials, temperature, timeout, max_retries, reasoning_effort)
     elif model_type == "ai_services":
-        return _create_ai_services_model(model, resource, credentials, temperature, timeout, max_retries)
+        return _create_ai_services_model(model, resource, credentials, temperature, timeout, max_retries, reasoning_effort)
     else:
-        return _create_azure_openai_model(model, resource, credentials, temperature, timeout, max_retries)
+        return _create_azure_openai_model(model, resource, credentials, temperature, timeout, max_retries, reasoning_effort)
 
 
 def _create_azure_openai_model(
@@ -57,6 +58,7 @@ def _create_azure_openai_model(
     temperature: float,
     timeout: int | None = None,
     max_retries: int = 3,
+    reasoning_effort: str = "medium",
 ) -> AzureChatOpenAI:
     """Azure OpenAI models (GPT series) via AzureChatOpenAI."""
     kwargs: dict[str, Any] = {
@@ -66,6 +68,7 @@ def _create_azure_openai_model(
         "api_version": credentials.get("api_version", "2024-02-15-preview"),
         "temperature": temperature,
         "max_retries": max_retries,
+        "reasoning_effort": reasoning_effort,
     }
     if timeout is not None:
         kwargs["timeout"] = timeout
@@ -79,6 +82,7 @@ def _create_ai_services_model(
     temperature: float,
     timeout: int | None = None,
     max_retries: int = 3,
+    reasoning_effort: str = "medium",
 ) -> ChatOpenAI:
     """Azure AI Services models (DeepSeek, Llama, Mistral, etc.) via OpenAI-compatible endpoint."""
     kwargs: dict[str, Any] = {
@@ -87,6 +91,7 @@ def _create_ai_services_model(
         "base_url": f"https://{resource}.services.ai.azure.com/openai/v1/",
         "temperature": temperature,
         "max_retries": max_retries,
+        "reasoning_effort": reasoning_effort,
     }
     if timeout is not None:
         kwargs["timeout"] = timeout
@@ -100,6 +105,7 @@ def _create_anthropic_model(
     temperature: float,
     timeout: int | None = None,
     max_retries: int = 3,
+    reasoning_effort: str = "medium",
 ) -> BaseChatModel:
     """Anthropic Foundry models (Claude series) hosted on Azure."""
     from langchain_anthropic import ChatAnthropic
@@ -111,6 +117,7 @@ def _create_anthropic_model(
         "temperature": temperature,
         "max_tokens": 16384,
         "max_retries": max_retries,
+        "effort": reasoning_effort,
     }
     if timeout is not None:
         kwargs["timeout"] = timeout

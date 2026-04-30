@@ -8,6 +8,7 @@ def create_anthropic_model(
     temperature: float,
     timeout: int | None = None,
     max_retries: int = 3,
+    reasoning_effort: str = "medium",
 ) -> ChatAnthropic:
     """Create an Anthropic chat model. Hardcodes max_tokens=16384 (Anthropic API requires it)."""
     api_key = credentials["api_key"]
@@ -18,6 +19,7 @@ def create_anthropic_model(
         "temperature": temperature,
         "max_tokens": 16384,
         "max_retries": max_retries,
+        "effort": reasoning_effort,
     }
     if timeout is not None:
         kwargs["timeout"] = timeout

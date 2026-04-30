@@ -1,46 +1,25 @@
 export const languageMap: IStringKeyMap = {
   en: 'English',
-  es: 'Español',
-  fr: 'Français',
-  de: 'Deutsch',
-  it: 'Italiano',
-  pt: 'Português',
-  hi: 'हिन्दी',
-  ar: 'العربية',
-  'zh-cn': '简体中文',
-  'zh-tw': '繁體中文',
-  ja: '日本語',
-  ko: '한국어',
-  ru: 'Русский',
-  nl: 'Nederlands',
-  sv: 'Svenska',
   fi: 'Suomi',
+  sv: 'Svenska',
   no: 'Norsk',
   da: 'Dansk',
+  de: 'Deutsch',
+  fr: 'Français',
+  es: 'Español',
+  it: 'Italiano',
+  pt: 'Português',
+  nl: 'Nederlands',
   pl: 'Polski',
-  tr: 'Türkçe',
-  el: 'Ελληνικά',
-  he: 'עברית',
-  hu: 'Magyar',
-  id: 'Bahasa Indonesia',
-  ms: 'Bahasa Melayu',
-  th: 'ไทย',
-  vi: 'Tiếng Việt',
-  uk: 'Українська',
-  bg: 'Български',
   cs: 'Čeština',
-  ro: 'Română',
-  sk: 'Slovenčina',
-  sl: 'Slovenščina',
-  hr: 'Hrvatski',
-  sr: 'Српски',
-  bn: 'বাংলা',
-  gu: 'ગુજરાતી',
-  kn: 'ಕನ್ನಡ',
-  mr: 'मराठी',
-  ta: 'தமிழ்',
-  te: 'తెలుగు',
-  ur: 'اردو',
+  hu: 'Magyar',
+  el: 'Ελληνικά',
+  ru: 'Русский',
+  'zh-cn': '简体中文',
+  ja: '日本語',
+  ko: '한국어',
+  hi: 'हिन्दी',
+  ar: 'العربية',
 }
 
 export const availableAPIs: IStringKeyMap = {
@@ -55,69 +34,38 @@ export const availableAPIs: IStringKeyMap = {
 }
 
 // OpenAI API available models
-export const availableModels: string[] = [
-  'gpt-5.4-pro',
-  'gpt-5.4-mini',
-  'gpt-5.4',
-  'gpt-5.2-pro',
-  'gpt-5.2',
-  'gpt-5.1',
-  'gpt-5-mini',
-  'gpt-5-nano',
-  'gpt-4.1',
-]
+export const availableModels: string[] = ['gpt-5.5', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4', 'gpt-4.1']
 
 // Gemini API 可用的模型
-export const availableModelsForGemini: string[] = [
-  'gemini-3.1-pro-preview',
-  'gemini-3-pro-preview',
-  'gemini-3-flash-preview',
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
-]
+export const availableModelsForGemini: string[] = ['gemini-3.1-pro-preview', 'gemini-3-flash-preview']
 
 // Ollama API 可用的模型
-export const availableModelsForOllama: string[] = [
-  'qwen3:latest',
-  'llama4:latest',
-  'deepseek-r1:latest',
-  'gpt-oss:latest',
-  'kimi-k2:1t-cloud',
-  'gemini-3-flash-preview:latest',
-  'ministral-3:latest',
-]
+export const availableModelsForOllama: string[] = ['qwen3:latest', 'llama4:latest']
 
 export const availableModelsForGroq: string[] = [
   'llama-3.3-70b-versatile',
   'llama-3.1-8b-instant',
   'meta-llama/llama-4-scout-17b-16e-instruct',
   'openai/gpt-oss-120b',
-  'openai/gpt-oss-20b',
   'qwen/qwen3-32b',
   'moonshotai/kimi-k2-instruct-0905',
 ]
 
 // Together AI available models
 export const availableModelsForTogetherAI: string[] = [
-  'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8',
-  'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+  'zai-org/GLM-5.1',
+  'MiniMaxAI/MiniMax-M2.7',
+  'google/gemma-4-31B-it',
   'Qwen/Qwen3.5-397B-A17B',
-  'deepseek-ai/DeepSeek-V3.1',
-  'deepseek-ai/DeepSeek-R1',
-  'mistralai/Mistral-Small-24B-Instruct-2501',
-  'moonshotai/Kimi-K2.5',
-  'google/gemma-3n-E4B-it',
 ]
 
 // Anthropic API available models
 export const availableModelsForAnthropic: string[] = [
+  'claude-opus-4-7',
   'claude-opus-4-6',
-  'claude-opus-4-5',
   'claude-sonnet-4-6',
-  'claude-sonnet-4-5',
   'claude-haiku-4-5',
 ]
-
 // Azure: combined OpenAI + Anthropic models (custom AI Services models added by user)
 export const availableModelsForAzure: string[] = [...availableModels, ...availableModelsForAnthropic]
 

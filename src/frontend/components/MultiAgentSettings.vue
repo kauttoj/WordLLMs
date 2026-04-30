@@ -39,15 +39,6 @@
             <option value="">{{ t('noModelsConfigured') }}</option>
           </select>
         </div>
-
-        <CustomInput
-          v-model.number="expert.temperature"
-          :title="t('temperature')"
-          type="number"
-          :min="0"
-          :max="2"
-          :step="0.1"
-        />
       </div>
     </SettingCard>
 
@@ -77,14 +68,6 @@
             <option value="">{{ t('noModelsConfigured') }}</option>
           </select>
         </div>
-        <CustomInput
-          v-model.number="config.overseer.temperature"
-          :title="t('temperature')"
-          type="number"
-          :min="0"
-          :max="2"
-          :step="0.1"
-        />
       </div>
     </SettingCard>
 
@@ -116,14 +99,6 @@
             <option value="">{{ t('noModelsConfigured') }}</option>
           </select>
           </div>
-          <CustomInput
-            v-model.number="formatterTemperature"
-            :title="t('temperature')"
-            type="number"
-            :min="0"
-            :max="2"
-            :step="0.1"
-          />
         </div>
       </SettingCard>
     </template>
@@ -214,7 +189,6 @@ const ensureFormatter = () => {
         id: 'formatter',
         provider: 'anthropic',
         model: 'claude-haiku-4-5',
-        temperature: 0,
       },
     }
   }
@@ -233,14 +207,6 @@ const formatterModel = computed({
   set: (val: string) => {
     ensureFormatter()
     config.value.formatter!.model = val
-  },
-})
-
-const formatterTemperature = computed({
-  get: () => config.value.formatter?.temperature ?? 0,
-  set: (val: number) => {
-    ensureFormatter()
-    config.value.formatter!.temperature = val
   },
 })
 

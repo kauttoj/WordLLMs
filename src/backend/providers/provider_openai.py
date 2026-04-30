@@ -8,6 +8,7 @@ def create_openai_model(
     temperature: float,
     timeout: int | None = None,
     max_retries: int = 3,
+    reasoning_effort: str = "medium",
 ) -> ChatOpenAI:
     """Create an OpenAI chat model."""
     api_key = credentials["api_key"]
@@ -18,6 +19,7 @@ def create_openai_model(
         "api_key": api_key,
         "temperature": temperature,
         "max_retries": max_retries,
+        "reasoning_effort": reasoning_effort,
     }
     if timeout is not None:
         kwargs["timeout"] = timeout

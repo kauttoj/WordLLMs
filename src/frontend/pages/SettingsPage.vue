@@ -293,6 +293,15 @@
                   :placeholder="settingForm[item as SettingNames]"
                 />
               </SettingCard>
+              <SettingCard v-for="item in getApiEnumSettings(platform)" :key="item">
+                <SingleSelect
+                  v-model="settingForm[item as SettingNames]"
+                  :key-list="getEnumSettingOptions(item)"
+                  :title="t(getLabel(item))"
+                  :fronticon="false"
+                  :placeholder="settingForm[item as SettingNames] || t(getPlaceholder(item))"
+                />
+              </SettingCard>
               <SettingCard v-for="item in getApiNumSettings(platform)" :key="item">
                 <CustomInput
                   v-model.number="settingForm[item as SettingNames]"
@@ -796,28 +805,24 @@ const multiAgentConfig = ref<MultiAgentConfig>({
       name: 'Expert_1',
       provider: 'openai',
       model: '',
-      temperature: 1.0,
     },
     {
       id: 'expert_2',
       name: 'Expert_2',
       provider: 'anthropic',
       model: '',
-      temperature: 1.0,
     },
     {
       id: 'expert_3',
       name: 'Expert_3',
       provider: 'openai',
       model: '',
-      temperature: 1.0,
     },
     {
       id: 'expert_4',
       name: 'Expert_4',
       provider: 'openai',
       model: '',
-      temperature: 1.0,
     },
   ],
   overseer: {
@@ -825,7 +830,6 @@ const multiAgentConfig = ref<MultiAgentConfig>({
     name: 'Overseer',
     provider: 'anthropic',
     model: '',
-    temperature: 1.0,
   },
 })
 
@@ -911,8 +915,18 @@ const getApiCheckboxSettings = (platform: string) => {
 
 const getApiSelectSettings = (platform: string) => {
   return Object.keys(settingForm.value).filter(
-    key => key.startsWith(platform) && settingPreset[key as SettingNames].type === 'select',
+    key => key.startsWith(platform) && settingPreset[key as SettingNames].type === 'select' && key.endsWith('ModelSelect'),
   )
+}
+
+const getApiEnumSettings = (platform: string) => {
+  return Object.keys(settingForm.value).filter(
+    key => key.startsWith(platform) && settingPreset[key as SettingNames].type === 'select' && !key.endsWith('ModelSelect'),
+  )
+}
+
+const getEnumSettingOptions = (item: string): string[] => {
+  return (settingPreset[item as SettingNames] as any).optionList || []
 }
 
 const getCustomModelsKey = (platform: string): SettingNames | null => {
@@ -1288,7 +1302,6 @@ const loadMultiAgentConfig = () => {
           name: `Expert_${idx}`,
           provider: 'openai',
           model: '',
-          temperature: 1.0,
         })
       }
       multiAgentConfig.value = parsed

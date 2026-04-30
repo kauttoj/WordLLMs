@@ -50,6 +50,7 @@ interface ChatRequestBody {
   model: string
   credentials: BackendCredentials
   temperature: number
+  reasoning_effort?: string
   max_context_tokens: number
   llm_timeout: number
   filter_thinking?: boolean
@@ -58,6 +59,7 @@ interface ChatRequestBody {
   conversation_id?: string
   attachments?: FileAttachment[]
   attachment_char_limit?: number
+  document_content?: string
 }
 
 interface AgentRequestBody extends ChatRequestBody {
@@ -75,6 +77,7 @@ interface AgentContinueRequestBody {
   model: string
   credentials: BackendCredentials
   temperature: number
+  reasoning_effort?: string
   max_context_tokens: number
   llm_timeout: number
   filter_thinking?: boolean
@@ -446,6 +449,7 @@ export async function streamChatFromBackend(options: ProviderOptions, language?:
     model: getModelName(options),
     credentials: buildCredentials(options),
     temperature: options.temperature,
+    reasoning_effort: options.reasoningEffort,
     max_context_tokens: options.maxContextTokens,
     llm_timeout: options.llmTimeout,
     filter_thinking: 'lmstudioFilterThinking' in options ? (options.lmstudioFilterThinking ?? true) : false,
@@ -469,6 +473,10 @@ export async function streamChatFromBackend(options: ProviderOptions, language?:
   if (options.attachments?.length) {
     body.attachments = options.attachments
     body.attachment_char_limit = options.attachmentCharLimit
+  }
+
+  if (options.documentContent) {
+    body.document_content = options.documentContent
   }
 
   try {
@@ -564,6 +572,7 @@ export async function streamAgentFromBackend(options: AgentOptions, language?: s
     model: getModelName(options),
     credentials: buildCredentials(options),
     temperature: options.temperature,
+    reasoning_effort: options.reasoningEffort,
     max_context_tokens: options.maxContextTokens,
     llm_timeout: options.llmTimeout,
     filter_thinking: options.lmstudioFilterThinking ?? false,
@@ -674,6 +683,7 @@ export async function streamAgentFromBackend(options: AgentOptions, language?: s
         model: agentBody.model,
         credentials: agentBody.credentials,
         temperature: agentBody.temperature,
+        reasoning_effort: agentBody.reasoning_effort,
         max_context_tokens: agentBody.max_context_tokens,
         llm_timeout: agentBody.llm_timeout,
         filter_thinking: agentBody.filter_thinking,

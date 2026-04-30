@@ -188,6 +188,7 @@ async def chat_completion(request: ChatRequest):
                 credentials=request.credentials,
                 temperature=request.temperature,
                 timeout=llm_timeout,
+                reasoning_effort=request.reasoning_effort,
             )
             async for event in stream_chat(
                 model=model,
@@ -199,6 +200,7 @@ async def chat_completion(request: ChatRequest):
                 conversation_store=conversation_store,
                 max_context_tokens=request.max_context_tokens,
                 llm_timeout=llm_timeout,
+                document_content=request.document_content,
             ):
                 yield {"event": event["event"], "data": json.dumps(event["data"])}
         except Exception as e:
@@ -220,6 +222,7 @@ async def agent_completion(request: AgentRequest):
                 credentials=request.credentials,
                 temperature=request.temperature,
                 timeout=llm_timeout,
+                reasoning_effort=request.reasoning_effort,
             )
 
             if not request.tools:
@@ -261,6 +264,7 @@ async def agent_continue(request: AgentContinueRequest):
                 credentials=request.credentials,
                 temperature=request.temperature,
                 timeout=llm_timeout,
+                reasoning_effort=request.reasoning_effort,
             )
 
             # Use the same filtered tool list as the original /api/agent call
@@ -313,6 +317,7 @@ async def multiagent_completion(request: MultiAgentRequest):
                     credentials=cfg.credentials,
                     temperature=cfg.temperature,
                     timeout=llm_timeout,
+                    reasoning_effort=cfg.reasoning_effort,
                 ))
                 expert_max_context_tokens.append(cfg.max_context_tokens)
 
@@ -323,6 +328,7 @@ async def multiagent_completion(request: MultiAgentRequest):
                 credentials=request.overseer.credentials,
                 temperature=request.overseer.temperature,
                 timeout=llm_timeout,
+                reasoning_effort=request.overseer.reasoning_effort,
             )
             overseer_max_context_tokens = request.overseer.max_context_tokens
 
@@ -334,6 +340,7 @@ async def multiagent_completion(request: MultiAgentRequest):
                     credentials=request.synthesizer.credentials,
                     temperature=request.synthesizer.temperature,
                     timeout=llm_timeout,
+                    reasoning_effort=request.synthesizer.reasoning_effort,
                 )
                 synthesizer_max_context_tokens = request.synthesizer.max_context_tokens
             else:
@@ -349,6 +356,7 @@ async def multiagent_completion(request: MultiAgentRequest):
                     credentials=request.formatter.credentials,
                     temperature=request.formatter.temperature,
                     timeout=llm_timeout,
+                    reasoning_effort=request.formatter.reasoning_effort,
                 )
 
             # 5. Resolve Tools

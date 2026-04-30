@@ -359,6 +359,7 @@ async def stream_chat(
     additional_system_prompt: str | None = None,
     conversation_id: str | None = None,
     conversation_store: "ConversationStore | None" = None,
+    document_content: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Stream a simple chat response (no tools).
 
@@ -368,7 +369,7 @@ async def stream_chat(
     """
     print(f"[stream_chat] Starting with model: {type(model).__name__}, filter_thinking: {filter_thinking}, messages: {len(messages)}, language: {language}")
 
-    from ..prompts.system_prompts import generate_chat_system_prompt, inject_behavior
+    from ..prompts.system_prompts import generate_chat_system_prompt, inject_behavior, inject_document
 
     use_store = bool(conversation_id and conversation_store)
     turn = None
@@ -394,6 +395,8 @@ async def stream_chat(
         # Inject behavioral instructions after identity paragraph
         if system_content and isinstance(system_content, str):
             system_content = inject_behavior(system_content, additional_system_prompt)
+            # Append the current document fresh every turn — never persisted.
+            system_content = inject_document(system_content, document_content)
 
         # Build: system prompt + consigliere history + new user message
         lc_messages = []
@@ -413,6 +416,10 @@ async def stream_chat(
             messages, language, generate_chat_system_prompt
         )
         lc_messages = convert_messages(messages_to_use)
+        if document_content and lc_messages and isinstance(lc_messages[0], SystemMessage):
+            lc_messages[0] = SystemMessage(
+                content=inject_document(lc_messages[0].content, document_content)
+            )
 
     _log_conversation_length(lc_messages, prefix="[stream_chat]")
 

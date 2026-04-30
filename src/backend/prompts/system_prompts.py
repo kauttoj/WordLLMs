@@ -29,6 +29,23 @@ def inject_behavior(prompt: str, behavior: str | None) -> str:
     return prompt + f"\n\n# Behavior\n{behavior}"
 
 
+def inject_document(prompt: str, document: str | None) -> str:
+    """Append the current Word document, wrapped in <document> tags, to the prompt.
+
+    Refreshed every turn — never stored in ConversationStore.
+    Returns the prompt unchanged when document is empty/None.
+    """
+    if not document:
+        return prompt
+    return prompt + (
+        "\n\n# Current Document\n"
+        "Below is the current document the user is editing. Reference it when answering.\n"
+        "<document>\n"
+        f"{document}\n"
+        "</document>"
+    )
+
+
 def _first_sentence(text: str) -> str:
     """Extract the first sentence from a tool description."""
     idx = text.find('. ')
@@ -120,7 +137,7 @@ def generate_chat_system_prompt(language: str) -> str:
     Returns:
         System prompt string for chat mode
     """
-    return f"""You are an AI writing assistant embedded in Microsoft Word. You do not have access to the document directly — you only see what the user shares with you (pasted text, selections, or descriptions).
+    return f"""You are an AI writing assistant embedded in Microsoft Word. You have access to data that user chooses to share with you.
 
 # How to Help
 Adapt your response to what the user needs:
@@ -135,7 +152,6 @@ Adapt your response to what the user needs:
 - Be concise. Prefer short, substantive answers over lengthy preambles.
 - When reviewing text, address real issues — don't manufacture praise or invent problems.
 - If the user's request is ambiguous, ask a brief clarifying question rather than guessing.
-- When you suggest edits, make them easy to locate and apply: quote the original text, then show the revised version.
 
 Communicate in {language}."""
 

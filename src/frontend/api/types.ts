@@ -7,6 +7,7 @@ export interface BaseChatCompletionOptions {
   loading: Ref<boolean>
   maxContextTokens: number
   temperature: number
+  reasoningEffort?: string
   llmTimeout: number
   abortSignal?: AbortSignal
   threadId: string
@@ -14,6 +15,7 @@ export interface BaseChatCompletionOptions {
   conversationId?: string // Enables unified cross-mode conversation history
   attachments?: { filename: string; data: string }[]
   attachmentCharLimit: number
+  documentContent?: string // Full Word document text, attached fresh every turn (chat mode only)
   onStream: (text: string, speaker?: string, forceNew?: boolean) => void
 }
 
@@ -184,20 +186,17 @@ export interface MultiAgentConfig {
     name: string
     provider: supportedProviders
     model: string
-    temperature: number
   }[]
   overseer: {
     id: string
     name: string
     provider: supportedProviders
     model: string
-    temperature: number
   }
   formatter?: {
     id: string
     provider: supportedProviders
     model: string
-    temperature: number
   }
 }
 

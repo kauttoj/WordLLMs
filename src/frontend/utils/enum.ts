@@ -7,6 +7,7 @@ export const localStorageKey = {
   insertType: 'insertType',
   useWordFormatting: 'useWordFormatting',
   useSelectedText: 'useSelectedText',
+  includeDocument: 'includeDocument',
   agentMaxIterations: 'agentMaxIterations',
   enableMarkdown: 'enableMarkdown',
   horizontalToolCalls: 'horizontalToolCalls',
@@ -16,6 +17,7 @@ export const localStorageKey = {
   tavilyApiKey: 'tavilyApiKey',
   threadId: 'threadId',
   // openai api
+  openaiReasoningEffort: 'openaiReasoningEffort',
   apiKey: 'apiKey',
   model: 'model',
   customModel: 'customModel',
@@ -24,6 +26,7 @@ export const localStorageKey = {
   maxContextTokens: 'maxContextTokens',
   basePath: 'basePath',
   // azure api
+  azureReasoningEffort: 'azureReasoningEffort',
   azureAPIKey: 'azureAPIKey',
   azureAPIEndpoint: 'azureAPIEndpoint',
   azureDeploymentName: 'azureDeploymentName',
@@ -33,6 +36,7 @@ export const localStorageKey = {
   azureModel: 'azureModel',
   azureCustomModels: 'azureCustomModels',
   // gemini api
+  geminiReasoningEffort: 'geminiReasoningEffort',
   geminiAPIKey: 'geminiAPIKey',
   geminiMaxContextTokens: 'geminiMaxContextTokens',
   geminiTemperature: 'geminiTemperature',
@@ -62,6 +66,7 @@ export const localStorageKey = {
   lmstudioCustomModel: 'lmstudioCustomModel',
   lmstudioCustomModels: 'lmstudioCustomModels',
   // anthropic api
+  anthropicReasoningEffort: 'anthropicReasoningEffort',
   anthropicAPIKey: 'anthropicAPIKey',
   anthropicModel: 'anthropicModel',
   anthropicCustomModel: 'anthropicCustomModel',

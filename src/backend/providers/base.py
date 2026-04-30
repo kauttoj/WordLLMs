@@ -57,17 +57,18 @@ def create_model(
     temperature: float = 1.0,
     timeout: int | None = None,
     max_retries: int = 0,
+    reasoning_effort: str = "medium",
 ) -> BaseChatModel:
     """Factory function to create a chat model based on provider."""
     if provider == "openai":
         mod = _import_provider("openai")
-        return mod.create_openai_model(model, credentials, temperature, timeout, max_retries)
+        return mod.create_openai_model(model, credentials, temperature, timeout, max_retries, reasoning_effort)
     elif provider == "azure":
         mod = _import_provider("azure")
-        return mod.create_azure_model(model, credentials, temperature, timeout, max_retries)
+        return mod.create_azure_model(model, credentials, temperature, timeout, max_retries, reasoning_effort)
     elif provider == "gemini":
         mod = _import_provider("gemini")
-        return mod.create_gemini_model(model, credentials, temperature, timeout, max_retries)
+        return mod.create_gemini_model(model, credentials, temperature, timeout, max_retries, reasoning_effort)
     elif provider == "groq":
         mod = _import_provider("groq")
         return mod.create_groq_model(model, credentials, temperature, timeout, max_retries)
@@ -79,7 +80,7 @@ def create_model(
         return mod.create_lmstudio_model(model, credentials, temperature, timeout, max_retries)
     elif provider == "anthropic":
         mod = _import_provider("anthropic")
-        return mod.create_anthropic_model(model, credentials, temperature, timeout, max_retries)
+        return mod.create_anthropic_model(model, credentials, temperature, timeout, max_retries, reasoning_effort)
     elif provider == "togetherai":
         mod = _import_provider("togetherai")
         return mod.create_togetherai_model(model, credentials, temperature, timeout, max_retries)

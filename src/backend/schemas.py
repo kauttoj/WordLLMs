@@ -99,6 +99,7 @@ class ChatRequest(BaseModel):
     model: str
     credentials: dict[str, Any]
     temperature: float = Field(default=1.0, ge=0, le=2)
+    reasoning_effort: str = "medium"
     max_context_tokens: int = Field(default=128000, ge=4000)
     llm_timeout: int = Field(default=90, ge=5)  # Seconds per LLM API call
     filter_thinking: bool = Field(default=True)
@@ -107,6 +108,7 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None  # Enables unified cross-mode conversation history
     attachments: list[Attachment] = Field(default_factory=list)
     attachment_char_limit: int = Field(default=100000, ge=500)  # Per-file char limit
+    document_content: str | None = None  # Current Word document text (chat mode "Include document"); refreshed every turn, never persisted
 
 
 class AgentRequest(BaseModel):
@@ -119,6 +121,7 @@ class AgentRequest(BaseModel):
     conversation_id: str | None = None  # Enables unified cross-mode conversation history
     recursion_limit: int = Field(default=120, ge=1)
     temperature: float = Field(default=1.0, ge=0, le=2)
+    reasoning_effort: str = "medium"
     max_context_tokens: int = Field(default=128000, ge=4000)
     llm_timeout: int = Field(default=90, ge=5)  # Seconds per LLM API call
     filter_thinking: bool = Field(default=True)
@@ -142,6 +145,7 @@ class AgentContinueRequest(BaseModel):
     model: str
     credentials: dict[str, Any]
     temperature: float = Field(default=1, ge=0, le=2)
+    reasoning_effort: str = "medium"
     max_context_tokens: int = Field(default=128000, ge=4000)
     llm_timeout: int = Field(default=90, ge=5)  # Seconds per LLM API call
     filter_thinking: bool = Field(default=True)
@@ -165,6 +169,7 @@ class MultiAgentExpertConfig(BaseModel):
     model: str
     credentials: dict[str, Any]
     temperature: float = Field(default=1, ge=0, le=2)
+    reasoning_effort: str = "medium"
     max_context_tokens: int = Field(default=128000, ge=4000)
 
 

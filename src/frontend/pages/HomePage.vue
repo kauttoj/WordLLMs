@@ -509,6 +509,13 @@
             <input v-model="readOnlyMode" type="checkbox" />
             <span>{{ $t('readOnlyLabel') }}</span>
           </label>
+          <label
+            v-show="mode === 'ask'"
+            class="flex h-3.5 w-3.5 flex-1 cursor-pointer items-center gap-1 text-xs text-secondary"
+          >
+            <input v-model="includeDocument" type="checkbox" />
+            <span>{{ $t('includeDocumentLabel') }}</span>
+          </label>
         </div>
       </div>
     </div>
@@ -576,6 +583,8 @@ import { ToolCallMessage } from '@/utils/messageTypes'
 import useSettingForm from '@/utils/settingForm'
 import { settingPreset } from '@/utils/settingPreset'
 import { createWordTools, getCleanSelectedText, READ_ONLY_WORD_TOOLS, WordToolName } from '@/utils/wordTools'
+
+defineOptions({ name: 'Home' })
 
 const router = useRouter()
 const { t } = useI18n()
@@ -867,7 +876,6 @@ const loadMultiAgentConfig = (): MultiAgentConfig | null => {
           name: `Expert_${idx}`,
           provider: 'openai',
           model: '',
-          temperature: 1.0,
         })
       }
       return parsed
@@ -929,6 +937,7 @@ const startHeight = ref(0)
 const useWordFormatting = useStorage(localStorageKey.useWordFormatting, true)
 const useSelectedText = useStorage(localStorageKey.useSelectedText, true)
 const readOnlyMode = useStorage('readOnlyMode', false)
+const includeDocument = useStorage(localStorageKey.includeDocument, false)
 const insertType = ref<insertTypes>('replace')
 
 const errorIssue = ref<boolean | string | null>(false)
@@ -1326,6 +1335,7 @@ async function processChat(
       },
       maxContextTokens: settings.openaiMaxContextTokens,
       temperature: settings.openaiTemperature,
+      reasoningEffort: settings.openaiReasoningEffort,
       model: settings.openaiModelSelect,
     },
     anthropic: {
@@ -1333,6 +1343,7 @@ async function processChat(
       anthropicAPIKey: settings.anthropicAPIKey,
       anthropicModel: settings.anthropicModelSelect,
       temperature: settings.anthropicTemperature,
+      reasoningEffort: settings.anthropicReasoningEffort,
       maxContextTokens: settings.anthropicMaxContextTokens,
     },
     groq: {
@@ -1350,12 +1361,14 @@ async function processChat(
       azureAPIVersion: settings.azureAPIVersion,
       maxContextTokens: settings.azureMaxContextTokens,
       temperature: settings.azureTemperature,
+      reasoningEffort: settings.azureReasoningEffort,
     },
     gemini: {
       provider: 'gemini',
       geminiAPIKey: settings.geminiAPIKey,
       maxContextTokens: settings.geminiMaxContextTokens,
       temperature: settings.geminiTemperature,
+      reasoningEffort: settings.geminiReasoningEffort,
       geminiModel: settings.geminiModelSelect,
     },
     ollama: {
@@ -1622,11 +1635,22 @@ async function processChat(
       languageParam,
     )
   } else {
+    let documentContent: string | undefined
+    if (includeDocument.value) {
+      documentContent = await Word.run(async (context) => {
+        const body = context.document.body
+        body.load('text')
+        await context.sync()
+        return body.text ?? ''
+      })
+    }
+
     await getChatResponse(
       {
         ...currentConfig,
         llmTimeout: settings.llmTimeout,
         additionalSystemPrompt: additionalSystemPrompt.value || undefined,
+        documentContent,
         messages: finalMessages,
         errorIssue,
         loading,
