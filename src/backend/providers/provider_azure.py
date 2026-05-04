@@ -5,6 +5,10 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
 
+def _needs_responses_api(model: str) -> bool:
+    return model.startswith("gpt-5.")
+
+
 def _detect_model_type(model: str) -> str:
     """Auto-detect Azure model type from model name."""
     if model.startswith("gpt-"):
@@ -68,8 +72,10 @@ def _create_azure_openai_model(
         "api_version": credentials.get("api_version", "2024-02-15-preview"),
         "temperature": temperature,
         "max_retries": max_retries,
-        "reasoning_effort": reasoning_effort,
     }
+    kwargs["reasoning_effort"] = reasoning_effort
+    if _needs_responses_api(model):
+        kwargs["use_responses_api"] = True
     if timeout is not None:
         kwargs["timeout"] = timeout
     return AzureChatOpenAI(**kwargs)

@@ -2,6 +2,10 @@ from typing import Any
 from langchain_openai import ChatOpenAI
 
 
+def _needs_responses_api(model: str) -> bool:
+    return model.startswith("gpt-5.")
+
+
 def create_openai_model(
     model: str,
     credentials: dict[str, Any],
@@ -25,5 +29,7 @@ def create_openai_model(
         kwargs["timeout"] = timeout
     if base_url:
         kwargs["base_url"] = base_url
+    elif _needs_responses_api(model):
+        kwargs["use_responses_api"] = True
 
     return ChatOpenAI(**kwargs)
