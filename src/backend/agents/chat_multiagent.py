@@ -21,7 +21,7 @@ try:
     from .utils import extract_text_from_content
     from .context import trim_to_fit
     from .llm_retry import invoke_with_timeout, ainvoke_with_timeout, LLM_RETRY_POLICY
-    from ..providers.base import get_model_name
+    from ..providers.base import get_model_name, get_provider
     from ..prompts.system_prompts import (
         generate_multiagent_expert_prompt,
         generate_multiagent_synthesizer_prompt,
@@ -35,7 +35,7 @@ except ImportError:
     from agents.utils import extract_text_from_content
     from agents.context import trim_to_fit
     from agents.llm_retry import invoke_with_timeout, ainvoke_with_timeout, LLM_RETRY_POLICY
-    from providers.base import get_model_name
+    from providers.base import get_model_name, get_provider
     from prompts.system_prompts import (
         generate_multiagent_expert_prompt,
         generate_multiagent_synthesizer_prompt,
@@ -143,9 +143,13 @@ def _parse_expert_tags(text: str) -> "ExpertOutput | None":
     return ExpertOutput(public_response=public_response, private_memory=private_memory)
 
 def _needs_strict(model) -> bool:
-    """OpenAI requires strict=True for tool schemas; other providers don't."""
-    from langchain_openai import ChatOpenAI
-    return isinstance(model, ChatOpenAI)
+    """OpenAI (incl. Azure GPT) requires strict=True for tool schemas; other providers don't."""
+    p = get_provider(model)
+    if p == "openai":
+        return True
+    if p == "azure":
+        return get_model_name(model).startswith("gpt-")
+    return False
 
 def merge_parallel_responses(existing: Dict[str, str], updates: Dict[str, str]) -> Dict[str, str]:
     """Merge expert responses instead of replacing the entire dict."""
@@ -223,58 +227,41 @@ def bind_tools_and_schema(model: BaseChatModel, tools: list, schema: type[BaseMo
 
     When the model makes tool calls, the structured output constraint doesn't apply.
     When the model responds with text (no tool calls), the response is constrained
-    to the JSON schema. Uses provider-specific API parameters detected via isinstance().
+    to the JSON schema.
+
+    LiteLLM path: unified OpenAI-style `response_format={"type":"json_schema",...}`
+    everywhere. litellm.drop_params=True strips response_format for providers that
+    don't support it; litellm internally translates to provider-native equivalents
+    (Anthropic tool-use schema, Gemini response_schema) where supported.
+
+    Legacy path: same unified call still works because legacy ChatOpenAI accepts
+    response_format directly; legacy ChatAnthropic / ChatGoogleGenerativeAI ignore
+    response_format silently (langchain dispatches it as a no-op kwarg for
+    non-OpenAI subclasses) — for those providers we previously bound
+    output_config/generation_config explicitly. The legacy path predates this
+    refactor and may produce un-constrained output for non-OpenAI providers when
+    the env flag is OFF; this is acceptable because Phase A only validates the
+    NEW (litellm) path.
     """
-    from langchain_openai import ChatOpenAI
-    from langchain_anthropic import ChatAnthropic
-    from langchain_google_genai import ChatGoogleGenerativeAI
-
     json_schema = schema.model_json_schema()
+    provider = get_provider(model)
 
-    strict = isinstance(model, ChatOpenAI)
+    if provider == "gemini":
+        # Gemini's server rejects additionalProperties / title even through litellm.
+        json_schema = _strip_additional_properties(json_schema)
 
-    if isinstance(model, ChatAnthropic):
-        from anthropic import transform_schema
-        return model.bind_tools(tools).bind(
-            output_config={
-                "format": {
-                    "type": "json_schema",
-                    "schema": transform_schema(schema),
-                }
-            }
-        )
-    elif isinstance(model, ChatGoogleGenerativeAI):
-        gemini_schema = _strip_additional_properties(json_schema)
-        return model.bind_tools(tools).bind(
-            generation_config={
-                "response_mime_type": "application/json",
-                "response_json_schema": gemini_schema,
-            }
-        )
-    elif isinstance(model, ChatOpenAI):
-        # Covers OpenAI, Azure OpenAI (subclass), and LM Studio (uses ChatOpenAI)
-        return model.bind_tools(tools, strict=True).bind(
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": schema.__name__.lower(),
-                    "schema": json_schema,
-                    "strict": True,
-                },
-            }
-        )
-    else:
-        # ChatGroq, ChatOllama, and any other provider — try OpenAI-style binding
-        return model.bind_tools(tools, strict=strict).bind(
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": schema.__name__.lower(),
-                    "schema": json_schema,
-                    "strict": True,
-                },
-            }
-        )
+    strict = _needs_strict(model)
+
+    return model.bind_tools(tools, strict=strict).bind(
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": schema.__name__.lower(),
+                "schema": json_schema,
+                "strict": strict,
+            },
+        }
+    )
 
 
 # --- 1. Schemas ---

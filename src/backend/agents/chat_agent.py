@@ -18,18 +18,22 @@ try:
     from .utils import extract_text_from_content
     from .context import trim_to_fit
     from .llm_retry import invoke_with_timeout, ainvoke_with_timeout, astream_with_timeout, LLM_RETRY_POLICY
-    from ..providers.base import get_model_name
+    from ..providers.base import get_model_name, get_provider
 except ImportError:
     from schemas import Message
     from utils import extract_text_from_content
     from context import trim_to_fit
     from llm_retry import invoke_with_timeout, ainvoke_with_timeout, astream_with_timeout, LLM_RETRY_POLICY
-    from providers.base import get_model_name
+    from providers.base import get_model_name, get_provider
 
 def _needs_strict(model) -> bool:
-    """OpenAI requires strict=True for tool schemas; other providers don't."""
-    from langchain_openai import ChatOpenAI
-    return isinstance(model, ChatOpenAI)
+    """OpenAI (incl. Azure GPT) requires strict=True for tool schemas; other providers don't."""
+    p = get_provider(model)
+    if p == "openai":
+        return True
+    if p == "azure":
+        return get_model_name(model).startswith("gpt-")
+    return False
 
 # DEBUG: Set to False to disable streaming for easier debugging
 ENABLE_STREAM = True
