@@ -171,3 +171,303 @@ WordLLMs is essentially a "mini" website inside Word; Word only presents it. As 
    Create the folder first if it doesn't exist.
 
 2. Pull and run the Docker image. Open **Command Prompt** and at the FIRST time, run:
+
+
+```
+
+docker pull kauttoj/wordllms
+docker run -d --name wordllms -p 3000:8000 -v "C:\Users\YourName\WordLLMs:/app/data" kauttoj/wordllms
+
+```
+
+Replace `C:\Users\YourName\WordLLMs` with the folder you chose in step 1. Keep the `:/app/data` part exactly as shown — that is the path inside the container and must not be changed.
+
+> **Note**: Your conversation history is stored in a file on your PC. The `-v` flag is how Docker links your chosen Windows folder to the app running inside the container. Without it, all conversations are permanently lost every time the container stops. The app's file browser can only access folders that were linked this way at startup — you cannot change the folder later from inside the app.
+
+Now, the app should be running in the background. You should see this in the Docker:
+
+![Image](./public/docker0.png)
+
+Later, when you restart your app, click run in Docker
+
+![Image](./public/docker2.png)
+
+or run this command in console:
+
+
+```
+
+docker start wordllms
+
+```
+
+which restarts the old container without creating a new one. You can learn more at https://www.docker.com/blog/getting-started-with-docker-desktop
+
+How to update new version? First stop (if not stopped) and remove the container from Docker (delete button) or with console:
+
+
+```
+
+docker stop wordllms
+docker rm wordllms
+
+```
+
+Then repeat those same two pull and run commands as above.
+
+4. Open WordLLMs in Word, go to **Settings** and set **History Database Path** to:
+
+```
+
+/app/data/conversations.db
+
+```
+or any other filename you prefer. Click the folder icon to browse existing `.db` files, or type the path directly. This path always uses the `/app/data` form regardless of what Windows folder you chose — Docker translates it automatically.
+
+5. Download [manifest.xml](https://github.com/kauttoj/WordLLMs/blob/master/release/self-hosted/manifest.xml).
+6. [Optional: Edit `manifest.xml` if you changed the host port in the `docker run` command (e.g., if you used `-p 8080:8000`, replace `localhost:3000` with `localhost:8080`).]
+7. Proceed to the [Add-in Installation Guide](#add-in-installation-guide).
+
+> All processing happens in the container, it's the "brains" of the app. You need to run the Docker image (or Python app) each time you use WordLLMs. You either do this via terminal OR Docker desktop client.
+
+### Method 2: Build from Source
+
+*Requires Node.js 20+ and Python 3.10+*
+
+1. Clone and install dependencies:
+
+```bash
+git clone [https://github.com/kauttoj/WordLLMs.git](https://github.com/kauttoj/WordLLMs.git)
+cd WordLLMs
+yarn install
+pip install -r requirements.txt
+
+```
+
+2. Build the frontend:
+```bash
+yarn build
+
+```
+
+
+3. Start the backend (serves both the API and built frontend static files):
+```bash
+uvicorn src.backend.main:app --host 0.0.0.0 --port 3000
+
+```
+
+
+4. Download [manifest.xml](https://github.com/kauttoj/WordLLMs/blob/master/release/self-hosted/manifest.xml) and update the URLs to match your server address.
+5. Proceed to the [Add-in Installation Guide](https://www.google.com/search?q=%23add-in-installation-guide).
+
+## Add-in Installation Guide
+
+You will need to sideload the add-in into Microsoft Word.
+
+Full instructions from Microsoft: [Sideload Office Add-ins](https://learn.microsoft.com/en-us/office/dev/add-ins/testing/create-a-network-shared-folder-catalog-for-task-pane-and-content-add-ins)
+
+1. Go to the folder where you saved the `manifest.xml` file, for example `C:\Users\username\Documents\WordLLMs`.
+2. Open the context menu for the folder (right-click the folder) and select **Properties**.
+3. Within the **Properties** dialog box, select the **Sharing** tab, and then select **Share**.
+
+4. Within the **Network access** dialog box, add yourself and any other users you want to share, choose the **Share** button. When you see confirmation that your folder is shared, note the **full network path** displayed immediately following the folder name.
+
+5. Open a new document in Word, choose the **File** tab, and then choose **Options**.
+6. Choose **Trust Center**, and then choose the **Trust Center Settings** button.
+7. Choose **Trusted Add-in Catalogs**.
+8. In the **Catalog Url** box, enter the **full network path** and then choose **Add Catalog**.
+9. Select the **Show in Menu** check box, and then choose **OK**.
+
+10. Close and then restart Word.
+11. For older Word: Click **Insert** > **My Add-ins** > **Shared Folder**, choose **WordLLMs**, and then choose **Add**.
+For current Word: Click **Home** > **Add-ins** > **Advanced** at bottom > click **WordLLMs**. See images.
+12. Enjoy!
+
+## Usage
+
+For a full user-friendly tutorial covering all features, see the **[Usage Instructions](https://www.google.com/search?q=USAGE_INSTRUCTIONS.md)**.
+
+### Getting Started
+
+After opening WordLLMs, click the **Settings** button on the homepage to configure your preferred AI providers and API keys.
+
+### Chat Mode
+
+Type your message and press Enter. Responses stream in real time. Use the quick action buttons for common tasks like translation or polishing.
+
+### Agent Mode
+
+Switch to Agent mode and give the AI instructions that involve your document:
+
+* *"Read the entire document and create a summary at the beginning"*
+* *"Format all section headings as Heading 2 and make them blue"*
+* *"Search the web for recent statistics on X and insert them after paragraph 3"*
+* *"Create a table comparing the three approaches mentioned in the document"*
+
+The agent will plan its steps, use the appropriate tools, and report back. You can watch tool calls and results in real time.
+
+### Multi-Agent Mode
+
+Switch to Multi-Agent mode and configure:
+
+1. **Number of experts** (2-4)
+2. **Strategy**: Parallel or Collaborative
+3. **Model per expert**: Pick a different provider/model for each expert
+4. **Max rounds** (collaborative mode): 1-10
+
+Then give your task. Examples:
+
+* *"Review this document for logical consistency, grammar, and tone"* (parallel — each expert focuses on a different aspect)
+* *"Debate the pros and cons of the approach described in this document"* (collaborative — experts discuss across rounds)
+* *"Rewrite the introduction to be more engaging"* (parallel — get multiple rewrites, synthesizer picks the best)
+
+### Quick Actions
+
+Click the toolbar buttons for instant operations on selected text. The first 5 slots come pre-configured (Translate, Polish, Academic, Summarize, Grammar). The remaining 3 slots are fully customizable with your own system and user prompts.
+
+### Custom Models
+
+For each AI provider:
+
+1. Go to **Settings** > select your provider
+2. Enter a custom model name and click **Add**
+3. The model appears in the model dropdown
+
+### Configuration Tips
+
+* **Temperature**: Lower (0.3-0.5) for factual tasks, higher (0.7-1.0) for creative tasks (only for non-reasoning, legacy LLMs)
+* **Max Tokens**: Increase for longer responses, decrease for concise answers
+* **Custom Base URL**: Use for OpenAI-compatible services (DeepSeek, local proxies, etc.)
+* **Agent Max Iterations**: Increase for complex multi-step tasks
+
+### Using MCP Servers
+
+WordLLMs supports the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) — an open standard that lets you connect external tools and data sources to your AI agents. Any MCP-compliant server works out of the box.
+
+#### How It Works
+
+The Python backend acts as an MCP client. When you add a server, the backend spawns it as a subprocess (via stdio transport), discovers its tools, and makes them available to agents as regular server-side tools. The browser never communicates with MCP servers directly — everything goes through the backend.
+
+#### Adding an MCP Server
+
+1. Go to **Settings** > **MCP** tab
+2. Fill in the server details:
+* **Server name**: A friendly name (e.g., "Mendeley")
+* **Command**: The executable to run (e.g., `python`, `npx`, `node`)
+* **Arguments**: Command-line arguments, space-separated (e.g., `-m mendeley_mcp`)
+* **Environment variables**: Any required env vars as `KEY=VALUE`, comma-separated
+
+
+3. Click **Add Server**
+4. Click **Connect** — the backend will start the server and discover its tools
+5. Discovered tools appear with checkboxes — all enabled by default
+6. Toggle individual tools on/off as needed
+
+#### Example: Mendeley Academic Papers
+
+[Mendeley MCP](https://github.com/pallaprolus/mendeley-mcp) gives your agent access to your Mendeley library and the Mendeley catalog of 100M+ academic papers.
+
+**Setup:**
+
+1. Install the Mendeley MCP server:
+```bash
+pip install mendeley-mcp
+
+```
+
+
+2. Get your Mendeley API credentials:
+* Go to [Mendeley Developer Portal](https://dev.mendeley.com/)
+* Create an application to get your Client ID and Client Secret
+
+
+3. In WordLLMs, go to **Settings** > **MCP** tab and add:
+* **Server name**: `Mendeley`
+* **Command**: `python`
+* **Arguments**: `-m mendeley_mcp`
+* **Environment variables**: `MENDELEY_CLIENT_ID=your_id, MENDELEY_CLIENT_SECRET=your_secret`
+
+
+4. Click **Add Server**, then **Connect**
+
+**Available tools after connecting:**
+
+| Tool | Description |
+| --- | --- |
+| `mendeley_search_library` | Search your personal Mendeley library |
+| `mendeley_get_document` | Get full details of a document |
+| `mendeley_list_documents` | Browse documents with folder filtering |
+| `mendeley_list_folders` | Navigate your collections |
+| `mendeley_search_catalog` | Search 100M+ papers in Mendeley's catalog |
+| `mendeley_get_by_doi` | Find a paper by DOI |
+| `mendeley_add_document` | Add a paper to your library |
+
+**Example agent prompts:**
+
+* *"Search Mendeley for recent papers on transformer architectures and insert a summary table into my document"*
+* *"Find papers by Smith et al. on climate change and add their citations to the references section"*
+* *"Look up DOI 10.1234/example and insert the abstract after paragraph 2"*
+
+#### Finding More MCP Servers
+
+MCP is an open ecosystem. You can find servers for various services:
+
+* [MCP Server Registry](https://github.com/modelcontextprotocol/servers) — Official list of MCP servers
+* Any MCP-compliant server that supports stdio transport will work with WordLLMs
+
+#### Troubleshooting MCP
+
+* **Connection fails**: Make sure the server command is installed and accessible from your terminal. Try running the command manually first.
+* **No tools discovered**: The server may require authentication or configuration via environment variables. Check the server's documentation.
+* **Tool execution errors**: Errors from MCP tools are shown directly in the agent's response. Check the backend console for detailed logs (lines prefixed with `[MCP]`).
+* **Server disconnects**: If a server process dies, the next tool call will fail with an error. Click **Connect** again in Settings to restart it.
+
+## Architecture
+
+```mermaid
+graph TD
+    subgraph Word["Microsoft Word (Office.js)"]
+        FE["Vue 3 Frontend (TypeScript)\nChat · Agent · Multi-Agent UI\n25+ Word tools via Office.js\nSSE streaming client"]
+    end
+
+    FE -- "SSE (Server-Sent Events)" --> Agents
+
+    subgraph Backend["Python Backend (FastAPI)"]
+        Agents["LangGraph Agents\nSingle Agent · Multi-Agent parallel/collab"]
+        Providers["LangChain Providers\nOpenAI · Anthropic · Gemini · Azure\nGroq · Ollama · LM Studio"]
+        Tools["Server Tools\nWeb search · URL fetch · Math · Date"]
+        MCP["MCP Client Manager\nConnects to external MCP servers\nDynamic tool discovery"]
+        DB["SQLite Conversation Store\nUnified history across all modes"]
+        Agents --> Providers
+        Agents --> Tools
+        Agents --> MCP
+        Agents --> DB
+    end
+
+    MCP -- "stdio" --> MCPServers["MCP Servers\nMendeley · Filesystem · Custom"]
+
+```
+
+## Privacy & Security
+
+* **Local storage**: API keys are stored in browser localStorage within the Word add-in sandbox. They are never sent to any server other than the AI provider you configured.
+* **Direct connection**: The backend communicates directly with AI providers. There are no intermediary servers.
+* **Local models**: Ollama and LM Studio run entirely on your machine — your data never leaves your network.
+* **Conversation history**: Stored in a local SQLite database at a path you control.
+
+## Contributing
+
+If you have a suggestion that would make this better, please fork the repo and create a pull request.
+
+## Acknowledgements
+
+WordLLMs started from [Word GPT Plus](https://github.com/Kuingsmile/word-GPT-Plus) by [Kuingsmile](https://github.com/Kuingsmile). Thanks for the original project that provided the foundation for this work.
+
+## License
+
+MIT License
+
+## Show your support
+
+Give a star if you find this app useful.
