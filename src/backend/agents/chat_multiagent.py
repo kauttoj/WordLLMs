@@ -21,7 +21,7 @@ try:
     from .utils import extract_text_from_content
     from .context import trim_to_fit
     from .llm_retry import invoke_with_timeout, ainvoke_with_timeout, LLM_RETRY_POLICY
-    from ..providers.base import get_model_name, get_provider
+    from ..providers.base import bind_tools_compat, get_model_name, get_provider, with_structured_output_compat
     from ..prompts.system_prompts import (
         generate_multiagent_expert_prompt,
         generate_multiagent_synthesizer_prompt,
@@ -35,7 +35,7 @@ except ImportError:
     from agents.utils import extract_text_from_content
     from agents.context import trim_to_fit
     from agents.llm_retry import invoke_with_timeout, ainvoke_with_timeout, LLM_RETRY_POLICY
-    from providers.base import get_model_name, get_provider
+    from providers.base import bind_tools_compat, get_model_name, get_provider, with_structured_output_compat
     from prompts.system_prompts import (
         generate_multiagent_expert_prompt,
         generate_multiagent_synthesizer_prompt,
@@ -142,11 +142,6 @@ def _parse_expert_tags(text: str) -> "ExpertOutput | None":
         return None
     return ExpertOutput(public_response=public_response, private_memory=private_memory)
 
-def _needs_strict(model) -> bool:
-    """Only bare OpenAI supports strict tool schemas via litellm reliably.
-    Azure rejects strict as an unknown top-level param; all other providers ignore it."""
-    return get_provider(model) == "openai"
-
 def merge_parallel_responses(existing: Dict[str, str], updates: Dict[str, str]) -> Dict[str, str]:
     """Merge expert responses instead of replacing the entire dict."""
     return {**existing, **updates}
@@ -246,15 +241,13 @@ def bind_tools_and_schema(model: BaseChatModel, tools: list, schema: type[BaseMo
         # Gemini's server rejects additionalProperties / title even through litellm.
         json_schema = _strip_additional_properties(json_schema)
 
-    strict = _needs_strict(model)
-
     # Only include "strict" key for OpenAI — Azure rejects it, Anthropic rejects it,
     # and litellm doesn't strip nested fields inside response_format.json_schema.
     json_schema_payload: dict = {"name": schema.__name__.lower(), "schema": json_schema}
-    if strict:
+    if provider == "openai":
         json_schema_payload["strict"] = True
 
-    return model.bind_tools(tools, strict=strict).bind(
+    return bind_tools_compat(model, tools).bind(
         response_format={"type": "json_schema", "json_schema": json_schema_payload}
     )
 
@@ -624,7 +617,7 @@ def parallel_expert_node(state: MultiAgentState, config):
     messages = trim_to_fit(messages, model_name, max_ctx)
 
     print(f"[MultiAgent:ParallelExpert]   Invoking model...")
-    model_with_tools = model.bind_tools(tools, strict=_needs_strict(model))
+    model_with_tools = bind_tools_compat(model, tools)
     response = invoke_with_timeout(model_with_tools, messages, get_llm_timeout(config), label=expert_name)
 
     # If tool calls, add to history temporarily for execution
@@ -687,7 +680,7 @@ def parallel_tool_post_processing_node(state: MultiAgentState, config):
     messages = trim_to_fit(messages, model_name, max_ctx)
 
     print(f"[MultiAgent:ParallelPostProcess]   Invoking model for refinement...")
-    model_with_tools = model.bind_tools(tools, strict=_needs_strict(model))
+    model_with_tools = bind_tools_compat(model, tools)
     response = invoke_with_timeout(model_with_tools, messages, get_llm_timeout(config), label=f"{expert_name}:PostProcess")
 
     # If more tool calls, track caller for routing
@@ -767,7 +760,7 @@ async def _run_single_expert_async(
 
         # Bind ALL tools (same as sequential mode)
         if all_tools:
-            model_with_tools = model.bind_tools(all_tools, strict=_needs_strict(model))
+            model_with_tools = bind_tools_compat(model, all_tools)
         else:
             model_with_tools = model
 
@@ -874,7 +867,7 @@ def synthesizer_node(state: MultiAgentState, config):
     messages = trim_to_fit(messages, model_name, max_ctx)
 
     print(f"[MultiAgent:Synthesizer]   Invoking model...")
-    model_with_tools = model.bind_tools(tools, strict=_needs_strict(model))
+    model_with_tools = bind_tools_compat(model, tools)
     response = invoke_with_timeout(model_with_tools, messages, get_llm_timeout(config), label="Synthesizer")
 
     # Tag the synthesizer response
@@ -962,7 +955,7 @@ def collab_expert_node(state: MultiAgentState, config):
         # Legacy mode Step 1: tools only, no structured output
         print(f"[MultiAgent:CollabExpert]   Invoking model (tools only, legacy mode)...")
         if tools:
-            bound_model = model.bind_tools(tools, strict=_needs_strict(model))
+            bound_model = bind_tools_compat(model, tools)
         else:
             bound_model = model
         for empty_attempt in range(MAX_EMPTY_RETRIES + 1):
@@ -1006,7 +999,7 @@ def collab_expert_node(state: MultiAgentState, config):
             formatter_model_name = get_model_name(formatter_model_obj)
             print(f"[MultiAgent:CollabExpert]   Formatter: {formatter_model_obj.__class__.__name__} ({formatter_model_name})")
 
-            structured_formatter = formatter_model_obj.with_structured_output(ExpertOutput)
+            structured_formatter = with_structured_output_compat(formatter_model_obj, ExpertOutput)
             format_messages = [HumanMessage(content=(
                 f"Extract the public response and private memory from the text below.\n"
                 f"- public_response: The expert's analysis and recommendations (visible to others)\n"
@@ -1128,7 +1121,7 @@ def overseer_node(state: MultiAgentState, config):
     messages = trim_to_fit(messages, model_name, max_ctx)
 
     print(f"[MultiAgent:Overseer]   Invoking decider...")
-    decider = model.with_structured_output(OverseerDecision)
+    decider = with_structured_output_compat(model, OverseerDecision)
     output: OverseerDecision = invoke_with_timeout(decider, messages, get_llm_timeout(config), label="Overseer")
 
     print(f"[MultiAgent:Overseer]   Decision: {output.decision}")
@@ -1191,7 +1184,7 @@ def final_answer_node(state: MultiAgentState, config):
     messages = trim_to_fit(messages, model_name, max_ctx)
 
     print(f"[MultiAgent:FinalAnswer]   Invoking model...")
-    model_with_tools = model.bind_tools(tools, strict=_needs_strict(model))
+    model_with_tools = bind_tools_compat(model, tools)
     response = invoke_with_timeout(model_with_tools, messages, get_llm_timeout(config), label="FinalAnswer")
     response.name = "Overseer"
 

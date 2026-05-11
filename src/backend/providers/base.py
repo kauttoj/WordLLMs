@@ -4,6 +4,7 @@ from urllib.parse import urlparse, urlunparse
 
 import litellm
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain_litellm import ChatLiteLLM
 
 # CLAUDE.md says "crash hard and often when assumptions are not met".
@@ -111,6 +112,53 @@ def get_model_name(model: BaseChatModel) -> str:
             f"deployment_name={getattr(model, 'deployment_name', 'MISSING')})"
         )
     return name.split("/", 1)[1] if "/" in name else name
+
+
+def _is_litellm_model(model: BaseChatModel) -> bool:
+    """Return whether this model is the unified ChatLiteLLM wrapper."""
+    return isinstance(model, _TaggedChatLiteLLM)
+
+
+def bind_tools_compat(
+    model: BaseChatModel,
+    tools: list[Any],
+    *,
+    tool_choice: Any | None = None,
+):
+    """Bind tools without leaking `strict` as a top-level LiteLLM param.
+
+    ChatLiteLLM.bind_tools() forwards unknown kwargs into the eventual model
+    request. OpenAI strict tool schemas therefore need to be injected into each
+    function definition before binding, not passed as bind_tools(strict=True).
+    """
+    provider = get_provider(model)
+    kwargs: dict[str, Any] = {}
+    if tool_choice is not None:
+        kwargs["tool_choice"] = tool_choice
+
+    if provider == "openai":
+        if _is_litellm_model(model):
+            formatted_tools = [
+                convert_to_openai_tool(tool, strict=True)
+                for tool in tools
+            ]
+            return model.bind_tools(formatted_tools, **kwargs)
+        return model.bind_tools(tools, strict=True, **kwargs)
+
+    return model.bind_tools(tools, **kwargs)
+
+
+def with_structured_output_compat(model: BaseChatModel, schema: Any):
+    """Structured output binding that avoids non-OpenAI `strict` payloads.
+
+    ChatLiteLLM.with_structured_output(method="json_schema") inserts
+    response_format.json_schema.strict by default. Some providers reject that
+    nested field, so non-OpenAI LiteLLM models use function-calling structured
+    output instead.
+    """
+    if _is_litellm_model(model) and get_provider(model) != "openai":
+        return model.with_structured_output(schema, method="function_calling")
+    return model.with_structured_output(schema)
 
 
 def _tag_legacy(model: BaseChatModel, provider: str, raw_model: str) -> BaseChatModel:

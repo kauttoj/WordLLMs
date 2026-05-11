@@ -18,18 +18,13 @@ try:
     from .utils import extract_text_from_content
     from .context import trim_to_fit
     from .llm_retry import invoke_with_timeout, ainvoke_with_timeout, astream_with_timeout, LLM_RETRY_POLICY
-    from ..providers.base import get_model_name, get_provider
+    from ..providers.base import bind_tools_compat, get_model_name
 except ImportError:
     from schemas import Message
     from utils import extract_text_from_content
     from context import trim_to_fit
     from llm_retry import invoke_with_timeout, ainvoke_with_timeout, astream_with_timeout, LLM_RETRY_POLICY
-    from providers.base import get_model_name, get_provider
-
-def _needs_strict(model) -> bool:
-    """Only bare OpenAI supports strict tool schemas via litellm reliably.
-    Azure rejects strict as an unknown top-level param; all other providers ignore it."""
-    return get_provider(model) == "openai"
+    from providers.base import bind_tools_compat, get_model_name
 
 # DEBUG: Set to False to disable streaming for easier debugging
 ENABLE_STREAM = True
@@ -102,7 +97,7 @@ def agent_node(state: AgentState, config):
     trimmed = trim_to_fit(state["messages"], model_name, max_ctx)
 
     # Bind all tools (server + client)
-    model_with_tools = model.bind_tools(tools + client_tools, strict=_needs_strict(model))
+    model_with_tools = bind_tools_compat(model, tools + client_tools)
 
     llm_timeout = config["configurable"]["llm_timeout"]
     response = invoke_with_timeout(model_with_tools, trimmed, llm_timeout, label="Agent")
