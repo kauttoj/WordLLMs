@@ -37,8 +37,13 @@ function initializeSettings(): Record<string, SettingValue> {
   return settings
 }
 
+// Module-level singleton so both HomePage and SettingsPage share the same ref.
+// Without this, each call creates an isolated ref — settings saved in SettingsPage
+// never propagate to HomePage until the add-in restarts.
+const _settingForm = ref(initializeSettings()) as Ref<SettingForm>
+
 function useSettingForm() {
-  return ref(initializeSettings()) as Ref<SettingForm>
+  return _settingForm
 }
 
 export default useSettingForm

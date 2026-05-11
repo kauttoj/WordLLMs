@@ -143,13 +143,9 @@ def _parse_expert_tags(text: str) -> "ExpertOutput | None":
     return ExpertOutput(public_response=public_response, private_memory=private_memory)
 
 def _needs_strict(model) -> bool:
-    """OpenAI (incl. Azure GPT) requires strict=True for tool schemas; other providers don't."""
-    p = get_provider(model)
-    if p == "openai":
-        return True
-    if p == "azure":
-        return get_model_name(model).startswith("gpt-")
-    return False
+    """Only bare OpenAI supports strict tool schemas via litellm reliably.
+    Azure rejects strict as an unknown top-level param; all other providers ignore it."""
+    return get_provider(model) == "openai"
 
 def merge_parallel_responses(existing: Dict[str, str], updates: Dict[str, str]) -> Dict[str, str]:
     """Merge expert responses instead of replacing the entire dict."""
@@ -252,15 +248,14 @@ def bind_tools_and_schema(model: BaseChatModel, tools: list, schema: type[BaseMo
 
     strict = _needs_strict(model)
 
+    # Only include "strict" key for OpenAI — Azure rejects it, Anthropic rejects it,
+    # and litellm doesn't strip nested fields inside response_format.json_schema.
+    json_schema_payload: dict = {"name": schema.__name__.lower(), "schema": json_schema}
+    if strict:
+        json_schema_payload["strict"] = True
+
     return model.bind_tools(tools, strict=strict).bind(
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": schema.__name__.lower(),
-                "schema": json_schema,
-                "strict": strict,
-            },
-        }
+        response_format={"type": "json_schema", "json_schema": json_schema_payload}
     )
 
 

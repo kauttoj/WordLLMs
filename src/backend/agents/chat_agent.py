@@ -27,13 +27,9 @@ except ImportError:
     from providers.base import get_model_name, get_provider
 
 def _needs_strict(model) -> bool:
-    """OpenAI (incl. Azure GPT) requires strict=True for tool schemas; other providers don't."""
-    p = get_provider(model)
-    if p == "openai":
-        return True
-    if p == "azure":
-        return get_model_name(model).startswith("gpt-")
-    return False
+    """Only bare OpenAI supports strict tool schemas via litellm reliably.
+    Azure rejects strict as an unknown top-level param; all other providers ignore it."""
+    return get_provider(model) == "openai"
 
 # DEBUG: Set to False to disable streaming for easier debugging
 ENABLE_STREAM = True
