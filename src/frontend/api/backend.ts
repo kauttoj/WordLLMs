@@ -780,6 +780,7 @@ function buildExpertConfig(expert: MultiAgentExpertConfig): any {
     model,
     credentials: creds,
     temperature: expert.temperature,
+    reasoning_effort: expert.reasoningEffort,
     max_context_tokens: expert.maxContextTokens,
   }
 }

@@ -119,7 +119,7 @@ def _create_anthropic_model(
     kwargs: dict[str, Any] = {
         "model": model,
         "api_key": credentials["api_key"],
-        "anthropic_api_url": f"https://{resource}.openai.azure.com/anthropic",
+        "anthropic_api_url": f"https://{resource}.services.ai.azure.com/anthropic",
         "temperature": temperature,
         "max_tokens": 16384,
         "max_retries": max_retries,

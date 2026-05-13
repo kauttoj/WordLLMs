@@ -126,6 +126,7 @@ export interface MultiAgentExpertConfig {
   provider: supportedProviders
   model?: string
   temperature: number
+  reasoningEffort?: string
   maxContextTokens: number
   // Provider-specific options
   config?: {

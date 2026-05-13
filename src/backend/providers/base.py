@@ -230,8 +230,8 @@ def _create_model_litellm(
             kwargs["api_version"] = credentials.get("api_version", "2024-02-15-preview")
             kwargs["reasoning_effort"] = reasoning_effort
         elif model.startswith("claude-"):
-            litellm_model = f"anthropic/{model}"
-            kwargs["api_base"] = f"https://{resource}.openai.azure.com/anthropic"
+            litellm_model = f"azure_ai/{model}"
+            kwargs["api_base"] = f"https://{resource}.services.ai.azure.com/anthropic"
             kwargs["max_tokens"] = 16384
             kwargs["reasoning_effort"] = reasoning_effort
         else:
