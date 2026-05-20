@@ -215,6 +215,8 @@ docker rm wordllms
 
 Then repeat those same two pull and run commands as above.
 
+Your conversation history and MCP server configs are stored in the folder you chose in step 1 and will be automatically reloaded by the new container. In the rare case that a new version introduces a breaking change incompatible with your existing data, the app will move your old files to an `archive_<timestamp>` subfolder in that same directory and start fresh automatically.
+
 4. Open WordLLMs in Word, go to **Settings** and set **History Database Path** to:
 
 ```

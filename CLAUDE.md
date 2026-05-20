@@ -319,6 +319,30 @@ All system prompts are centralized in a single file for easier maintenance:
 - **CORS**: Currently allows all origins (`allow_origins=["*"]`) - restrict in production
 - **Static Assets**: Backend serves frontend static files from `/dist` directory
 
+### Docker Data Persistence
+
+The Dockerfile sets `ENV DATA_DIR=/app/data`. The host volume **must** be mounted to `/app/data`:
+
+```
+docker run -d -p 3000:8000 -v "C:\your\local\path:/app/data" kauttoj/wordllms
+```
+
+Files persisted in `DATA_DIR`:
+- `conversations.db` — SQLite conversation history (name configurable via GUI)
+- `config.json` — last-used DB path
+- `mcp_servers.json` — MCP server configs
+- `data_version.json` — schema version marker (written on every startup)
+
+**Compatibility check** (`src/backend/main.py`):
+- `DATA_VERSION` integer constant — bump it manually when a breaking schema change makes old data unreadable
+- `_check_data_compatibility()` runs at startup before `ConversationStore` is initialized
+- If `data_version.json` is missing or matches: proceeds normally
+- If version mismatch: all `*.db` and `*.json` files are moved to `archive_<timestamp>/` and the app starts fresh
+
+**What does NOT require Docker persistence** (browser-side, survives container rebuilds naturally):
+- `localStorage` — API keys, model settings, all GUI preferences
+- `IndexedDB` (Dexie) — LangGraph checkpoints, thread display history (`src/frontend/api/checkpoints.ts`)
+
 ## Language
 
 - While the codebase has support for chinese, we can concentrate on English for app development, omitting special needs for chinese.

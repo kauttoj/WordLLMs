@@ -70,7 +70,44 @@ def _write_db_path_to_config(db_path: str) -> None:
     )
 
 
+# Bump when a breaking schema change makes old data incompatible.
+DATA_VERSION = 1
+
+
+def _check_data_compatibility() -> None:
+    """Archive old data files if schema version is incompatible, then stamp current version."""
+    import shutil
+    from datetime import datetime
+
+    version_file = _DATA_DIR / "data_version.json"
+
+    if version_file.exists():
+        try:
+            stored = json.loads(version_file.read_text(encoding="utf-8")).get("version", 0)
+        except (json.JSONDecodeError, OSError):
+            stored = 0
+
+        if stored != DATA_VERSION:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            archive_dir = _DATA_DIR / f"archive_{timestamp}"
+            archive_dir.mkdir(parents=True)
+            for f in (
+                list(_DATA_DIR.glob("*.db"))
+                + list(_DATA_DIR.glob("*.db-*"))
+                + list(_DATA_DIR.glob("*.json"))
+            ):
+                shutil.move(str(f), str(archive_dir / f.name))
+            logger.warning(
+                f"Data version mismatch (stored={stored}, current={DATA_VERSION}). "
+                f"Old data archived to {archive_dir}"
+            )
+
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+    version_file.write_text(json.dumps({"version": DATA_VERSION}), encoding="utf-8")
+
+
 # Unified conversation history store (SQLite-backed, shared across all endpoints)
+_check_data_compatibility()
 conversation_store = ConversationStore(db_path=_read_db_path_from_config())
 
 # MCP client manager (connects to external MCP servers)

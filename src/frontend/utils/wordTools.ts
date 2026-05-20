@@ -226,6 +226,16 @@ function parseOoxml(ooxml: string): ParsedDocument {
         continue
       }
 
+      // Table structure — treat each cell as a separate segment so that anchor
+      // resolution never builds an expandTo() range that crosses cell walls
+      // (Word rejects such ranges with GeneralException on insertText).
+      if (ln === 'tbl' || ln === 'tr' || ln === 'tc') {
+        if (cleanText.length > 0) pendingBreak = true
+        walk(child as Element)
+        if (cleanText.length > 0) pendingBreak = true
+        continue
+      }
+
       walk(child as Element)
     }
   }
@@ -255,9 +265,39 @@ function sliceToDisplay(cleanText: string, boundaries: boolean[], from: number, 
   return result
 }
 
-/** Strip \n from search queries — LLM sees \n in text but cleanText has none. */
-function stripNewlines(s: string): string {
-  return s.replace(/\n/g, '')
+/** Prepare search text for use with Word.body.search().
+ *  Strips newlines (cleanText has none) and throws on characters body.search()
+ *  cannot handle, so the LLM receives a clear actionable error instead of
+ *  an opaque GeneralException. */
+function prepareSearchText(raw: string, paramName = 'searchText'): string {
+  if (typeof raw !== 'string' || raw.length === 0) {
+    throw new Error(`${paramName} must be a non-empty string`)
+  }
+  // Strip all newline variants (LLM sees \n but cleanText/body.search have none)
+  const noNewlines = raw.replace(/\r\n|\r|\n/g, '')
+  // Reject control characters that body.search() cannot handle
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(noNewlines)) {
+    throw new Error(
+      `${paramName} contains unsupported control characters that Word.search cannot match. Provide a plain-text query.`,
+    )
+  }
+  // Reject tab, NBSP and zero-width chars – they appear in cleanText (from table
+  // cells, formatted content) but body.search() rejects them with GeneralException
+  const m = noNewlines.match(/[\t ­​-‍﻿]/)
+  if (m) {
+    const char = m[0]
+    const label =
+      char === '\t' ? 'TAB (\\t)' :
+      char === ' ' ? 'NBSP (U+00A0)' :
+      char === '­' ? 'SOFT HYPHEN (U+00AD)' :
+      `ZERO-WIDTH (U+${char.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')})`
+    throw new Error(
+      `${paramName} contains ${label} which Word.search cannot match. ` +
+      `If the text was copied from a table or formatted region, search for a ` +
+      `shorter phrase from inside a single cell or paragraph.`,
+    )
+  }
+  return noNewlines
 }
 
 function findContiguousRange(boundaries: boolean[], pos: number): { segStart: number; segEnd: number } {
@@ -278,6 +318,33 @@ function countOccurrences(haystack: string, needle: string): number {
     pos++
   }
   return count
+}
+
+/** Build an anchor for a single-segment occurrence that body.search() failed to
+ *  match by extending the match into its containing segment until the substring
+ *  is unique in cleanText (or segment edges are reached). */
+function synthesiseUniqueAnchor(
+  cleanText: string,
+  boundaries: boolean[],
+  start: number,
+  end: number,
+): AnchorResult {
+  const { segStart, segEnd } = findContiguousRange(boundaries, start)
+  let from = start
+  let to = end
+  while (countOccurrences(cleanText, cleanText.slice(from, to + 1)) > 1) {
+    if (from > segStart) from--
+    else if (to < segEnd) to++
+    else break
+  }
+  const anchor = cleanText.slice(from, to + 1)
+  return {
+    startAnchor: anchor,
+    endAnchor: anchor,
+    isSingle: true,
+    startOffset: start - from,
+    endOffset: to - end,
+  }
 }
 
 function resolveAnchors(cleanText: string, boundaries: boolean[], start: number, end: number): AnchorResult {
@@ -330,30 +397,53 @@ function resolveAnchors(cleanText: string, boundaries: boolean[], start: number,
   return { startAnchor, endAnchor, isSingle: false, startOffset, endOffset }
 }
 
+function isOfficeError(e: unknown): boolean {
+  return !!e && typeof e === 'object' && (
+    (e as any).name === 'OfficeExtension.Error' ||
+    typeof (e as any).code === 'string'
+  )
+}
+
+function enrichOfficeError(e: unknown, operation: string, snippet: string): Error {
+  const code = isOfficeError(e) ? ((e as any).code ?? 'GeneralException') : String(e)
+  const err = new Error(
+    `Word.${operation} failed for "${snippet.slice(0, 80)}${snippet.length > 80 ? '…' : ''}" ` +
+    `(${code}). Likely cause: unsupported character, invalid range (e.g. crossing a ` +
+    `table cell wall), or a concurrent document change.`,
+    { cause: e },
+  )
+  return err
+}
+
 async function searchBody(
   context: Word.RequestContext,
   body: Word.Body,
   text: string,
   label: string,
 ): Promise<Word.Range[] | null> {
-  const r1 = body.search(text, { matchCase: true, matchWildcards: false })
-  r1.load('items')
-  await context.sync()
-  if (r1.items.length > 0) {
-    console.log(`  [WordTools] ${label}: ${r1.items.length} match(es)`)
-    return r1.items
-  }
+  try {
+    const r1 = body.search(text, { matchCase: true, matchWildcards: false })
+    r1.load('items')
+    await context.sync()
+    if (r1.items.length > 0) {
+      console.log(`  [WordTools] ${label}: ${r1.items.length} match(es)`)
+      return r1.items
+    }
 
-  const r2 = body.search(text, { matchCase: false, matchWildcards: false })
-  r2.load('items')
-  await context.sync()
-  if (r2.items.length > 0) {
-    console.warn(`  [WordTools] ${label}: ${r2.items.length} match(es) (case-insensitive)`)
-    return r2.items
-  }
+    const r2 = body.search(text, { matchCase: false, matchWildcards: false })
+    r2.load('items')
+    await context.sync()
+    if (r2.items.length > 0) {
+      console.warn(`  [WordTools] ${label}: ${r2.items.length} match(es) (case-insensitive)`)
+      return r2.items
+    }
 
-  console.error(`  [WordTools] ${label}: NOT FOUND — "${text.slice(0, 60)}"`)
-  return null
+    console.error(`  [WordTools] ${label}: NOT FOUND — "${text.slice(0, 60)}"`)
+    return null
+  } catch (e) {
+    if (isOfficeError(e)) throw enrichOfficeError(e, 'search', text)
+    throw e
+  }
 }
 
 async function searchWithinRange(
@@ -362,12 +452,17 @@ async function searchWithinRange(
   text: string,
   label: string,
 ): Promise<Word.Range[] | null> {
-  const r = range.search(text, { matchCase: true, matchWildcards: false })
-  r.load('items')
-  await context.sync()
-  if (r.items.length > 0) return r.items
-  console.error(`  [WordTools] ${label}: NOT FOUND within range`)
-  return null
+  try {
+    const r = range.search(text, { matchCase: true, matchWildcards: false })
+    r.load('items')
+    await context.sync()
+    if (r.items.length > 0) return r.items
+    console.error(`  [WordTools] ${label}: NOT FOUND within range`)
+    return null
+  } catch (e) {
+    if (isOfficeError(e)) throw enrichOfficeError(e, 'search', text)
+    throw e
+  }
 }
 
 async function trimAnchorRange(
@@ -518,21 +613,33 @@ async function resolveAllOccurrences(
   const multiOccs = occurrences.filter(o => !o.isSingle)
   console.log(`  [WordTools] Single-segment: ${singleOccs.length}, Multi-segment: ${multiOccs.length}`)
 
-  // Resolve single-segment: one body.search() call
+  // Resolve single-segment occurrences.
+  // Fast path: one body.search() call. Valid ONLY when counts match exactly —
+  // if counts differ the ordinal pairing would silently replace the wrong text.
   const resolved: { positionIndex: number; range: Word.Range }[] = []
 
   if (singleOccs.length > 0) {
     const items = await searchBody(context, body, searchText, 'single-seg-all')
-    if (items) {
-      if (items.length < singleOccs.length) {
-        console.warn(
-          `  [WordTools] body.search returned ${items.length} but expected ${singleOccs.length}. Using available matches.`,
-        )
+    const fastPathOk = items !== null && items.length === singleOccs.length
+
+    if (fastPathOk) {
+      for (let i = 0; i < items!.length; i++) {
+        resolved.push({ positionIndex: singleOccs[i].positionIndex, range: items![i] })
       }
-      const count = Math.min(items.length, singleOccs.length)
-      for (let i = 0; i < count; i++) {
-        resolved.push({ positionIndex: singleOccs[i].positionIndex, range: items[i] })
+    } else {
+      // Count mismatch: body.search doesn't agree with cleanText positions.
+      // Fall back to per-occurrence anchor resolution to avoid wrong-index pairing.
+      const got = items?.length ?? 0
+      console.warn(
+        `  [WordTools] body.search returned ${got} but cleanText has ${singleOccs.length}. ` +
+        `Falling back to per-occurrence anchor resolution.`,
+      )
+      for (const occ of singleOccs) {
+        occ.isSingle = false
+        occ.anchors = synthesiseUniqueAnchor(cleanText, boundaries, occ.cleanIdx, occ.end)
       }
+      multiOccs.push(...singleOccs)
+      multiOccs.sort((a, b) => a.positionIndex - b.positionIndex)
     }
   }
 
@@ -618,8 +725,14 @@ async function trackedReplace(
   await context.sync()
   const saved = context.document.changeTrackingMode
   context.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll
-  range.insertText(newText, Word.InsertLocation.replace)
-  await context.sync()
+  try {
+    range.insertText(newText, Word.InsertLocation.replace)
+    await context.sync()
+  } catch (e) {
+    context.document.changeTrackingMode = saved
+    if (isOfficeError(e)) throw enrichOfficeError(e, 'insertText', newText)
+    throw e
+  }
   context.document.changeTrackingMode = saved
   // Reset style on non-first paragraphs to prevent heading style bleeding
   if (!keepStyle && newText.includes('\n')) {
@@ -1049,14 +1162,24 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
     },
     execute: async args => {
       const { searchText: rawSearch, replaceText: rawReplace, matchCase = false, keepStyle = false } = args
-      const searchText = stripNewlines(rawSearch)
+      const searchText = prepareSearchText(rawSearch)
       const replaceText = stripMarkdown(rawReplace)
       return Word.run(async context => {
         const { body, parsed } = await getDocumentParsed(context)
+        const cleanPositions = matchCase
+          ? countOccurrences(parsed.cleanText, searchText)
+          : countOccurrences(parsed.cleanText.toLowerCase(), searchText.toLowerCase())
         const ranges = await resolveAllOccurrencesCaseAware(context, body, parsed, searchText, matchCase)
 
         if (ranges.length === 0) {
-          return `No occurrences of "${searchText}" found in document`
+          if (cleanPositions === 0) {
+            return `No occurrences of "${searchText}" found in document`
+          }
+          throw new Error(
+            `Found ${cleanPositions} match(es) in document text but Word could not resolve ` +
+            `any to a replaceable range. Try a more specific or shorter phrase, or use ` +
+            `find_and_select_text + replace_selected_text for content inside table cells.`,
+          )
         }
 
         // Replace right-to-left to preserve earlier range positions
@@ -1064,7 +1187,13 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
           await trackedReplace(context, ranges[i], replaceText, keepStyle)
         }
 
-        return `Replaced ${ranges.length} occurrence(s) of "${searchText}" with "${replaceText}"`
+        const unresolved = cleanPositions - ranges.length
+        const suffix =
+          unresolved > 0
+            ? ` (${unresolved} match(es) could not be resolved and were left unchanged — ` +
+              `try a shorter, more unique phrase)`
+            : ''
+        return `Replaced ${ranges.length} occurrence(s) of "${searchText}" with "${replaceText}"${suffix}`
       })
     },
   },
@@ -1098,7 +1227,7 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
     },
     execute: async args => {
       const { searchText: rawSearch, replaceText: rawReplace, matchCase = false, keepStyle = false } = args
-      const searchText = stripNewlines(rawSearch)
+      const searchText = prepareSearchText(rawSearch)
       const replaceText = stripMarkdown(rawReplace)
       return Word.run(async context => {
         const selection = context.document.getSelection()
@@ -1669,7 +1798,7 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
     },
     execute: async args => {
       const { searchText: rawSearch, matchCase = false } = args
-      const searchText = stripNewlines(rawSearch)
+      const searchText = prepareSearchText(rawSearch)
       return Word.run(async context => {
         const { parsed } = await getDocumentParsed(context)
         const { cleanText, boundaries } = parsed
@@ -1699,11 +1828,27 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
           pos = idx + 1
         }
 
+        // Quick check: can body.search resolve these matches?
+        // This tells the LLM upfront whether search_and_replace will succeed.
+        let resolvable = false
+        if (matches.length > 0) {
+          try {
+            const body = context.document.body
+            const probe = body.search(searchText, { matchCase, matchWildcards: false })
+            probe.load('items')
+            await context.sync()
+            resolvable = probe.items.length > 0
+          } catch {
+            resolvable = false
+          }
+        }
+
         return JSON.stringify(
           {
             searchText,
             matchCount: matches.length,
             found: matches.length > 0,
+            resolvable,
             matches,
           },
           null,
@@ -1734,7 +1879,7 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
     },
     execute: async args => {
       const { searchText: rawSearch, matchCase = false } = args
-      const searchText = stripNewlines(rawSearch)
+      const searchText = prepareSearchText(rawSearch)
       return Word.run(async context => {
         const { body, parsed } = await getDocumentParsed(context)
         const target = matchCase ? searchText : searchText.toLowerCase()
@@ -1808,8 +1953,8 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
     },
     execute: async args => {
       const { startText: rawStart, endText: rawEnd, matchCase = false } = args
-      const startText = stripNewlines(rawStart)
-      const endText = stripNewlines(rawEnd)
+      const startText = prepareSearchText(rawStart, 'startText')
+      const endText = prepareSearchText(rawEnd, 'endText')
       return Word.run(async context => {
         const { body, parsed } = await getDocumentParsed(context)
         const { cleanText } = parsed
