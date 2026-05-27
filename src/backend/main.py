@@ -592,6 +592,10 @@ async def set_history_path(request: HistoryPathRequest):
     new_path = request.path.strip()
     if not new_path:
         new_path = DEFAULT_DB_PATH
+    else:
+        resolved = Path(new_path)
+        if not resolved.is_absolute():
+            new_path = str(_DATA_DIR / resolved)
 
     # Validate that the parent directory exists or can be created
     parent = Path(new_path).parent

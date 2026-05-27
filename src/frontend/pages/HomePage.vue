@@ -1583,6 +1583,12 @@ async function processChat(
         scrollToBottom()
       },
     })
+    if (
+      multiAgentMode.value === 'collaborative' &&
+      localStorage.getItem(localStorageKey.autoSwitchModeAfterCollaborative) !== 'false'
+    ) {
+      mode.value = 'agent'
+    }
   } else if (isAgentMode) {
     const tools = getActiveTools()
 

@@ -23,6 +23,8 @@
   "appendToSelection": "Append",
   "askAnything": "Ask Anything",
   "attachFiles": "Attach files",
+  "autoSwitchModeAfterCollaborativeLabel": "Auto-Switch to Agent Mode After Collaborative",
+  "autoSwitchModeAfterCollaborativePlaceholder": "Switch to agent mode automatically when a collaborative multiagent run finishes",
   "attachmentCharLimitLabel": "Attachment Character Limit",
   "attachmentCharLimitPlaceholder": "Max characters per parsed file (0 = unlimited)",
   "availableTools": "Available Tools",

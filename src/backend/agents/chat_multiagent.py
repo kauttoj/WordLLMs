@@ -1,5 +1,6 @@
 import re
 import sys
+import copy
 import json
 import pickle
 import uuid
@@ -1674,7 +1675,7 @@ async def _run_parallel_experts(
     for idx in range(total_experts):
         task = asyncio.create_task(_run_single_expert_async(
             idx=idx,
-            model=expert_models[idx],
+            model=copy.deepcopy(expert_models[idx]),
             server_tools=server_tools,
             client_tool_names=client_tool_names,
             all_tools=all_expert_tools,
