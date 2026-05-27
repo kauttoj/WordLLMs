@@ -2,11 +2,35 @@ import './index.css'
 
 import { createApp } from 'vue'
 
+import { bootstrapProfile, startStreamCountPoll } from './api/profile'
 import App from './App.vue'
 import { i18n } from './i18n'
 import router from './router'
 
-const initApp = () => {
+function renderBackendDownError(err: unknown) {
+  const root = document.getElementById('app')
+  if (!root) return
+  const msg = err instanceof Error ? err.message : String(err)
+  root.innerHTML = `
+    <div style="padding:24px;font-family:system-ui,sans-serif;color:#333;max-width:520px;margin:40px auto;">
+      <h2 style="margin:0 0 12px;">Backend unreachable</h2>
+      <p>WordLLMs requires the Python backend to be running. Start it and reload this pane.</p>
+      <p style="color:#888;font-size:12px;">Details: ${msg}</p>
+      <button onclick="window.location.reload()" style="padding:6px 16px;cursor:pointer;">Reload</button>
+    </div>
+  `
+}
+
+const initApp = async () => {
+  try {
+    await bootstrapProfile()
+  } catch (err) {
+    console.error('[Main] Profile bootstrap failed:', err)
+    renderBackendDownError(err)
+    return
+  }
+  startStreamCountPoll()
+
   const app = createApp(App)
   const debounce = (fn: (...args: any[]) => void, delay?: number) => {
     let timer: number | null = null
@@ -38,7 +62,6 @@ if (typeof window.Office !== 'undefined') {
     initApp()
   })
 } else {
-  // Browser mode - init immediately
-  console.log('[Main] Running in browser mode (Office.js not detected)')
+  console.log('[Main] Running outside Word (Office.js not detected)')
   initApp()
 }

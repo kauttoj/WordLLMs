@@ -16,7 +16,7 @@ if str(_BACKEND_DIR) not in sys.path:
 from .schemas import (
     ChatRequest, AgentRequest, AgentContinueRequest,
     MultiAgentRequest, MultiAgentContinueRequest,
-    ThreadSaveRequest, HistoryPathRequest,
+    ThreadSaveRequest, ProfilePathRequest,
     EditMessageRequest, TruncateRequest, ForkRequest,
     MCPServerAddRequest, MCPServerUpdateRequest,
 )
@@ -25,8 +25,9 @@ from .providers import create_model
 from .tools import get_tools, ALL_TOOLS
 from .agents import stream_chat, stream_agent, resume_agent
 from .agents.chat_multiagent import stream_multiagent, resume_multiagent
-from .conversation_store import ConversationStore, DEFAULT_DB_PATH, _DATA_DIR
+from .conversation_store import ConversationStore
 from .mcp_integration import MCPClientManager
+from .profile_store import ProfileStore, get_browse_root, resolve_initial_profile_dir
 
 import logging
 
@@ -45,74 +46,13 @@ def adjust_timeout_for_provider(timeout: int, provider: str) -> int:
         logger.info(f"Local provider '{provider}': timeout {timeout}s -> {adjusted}s")
         return adjusted
     return timeout
-CONFIG_PATH = _DATA_DIR / "config.json"
-
-
-def _read_db_path_from_config() -> str:
-    """Read the last-used DB path from config.json, falling back to default."""
-    if CONFIG_PATH.exists():
-        try:
-            cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-            path = cfg.get("db_path", "")
-            if path:
-                return path
-        except (json.JSONDecodeError, OSError):
-            pass
-    return DEFAULT_DB_PATH
-
-
-def _write_db_path_to_config(db_path: str) -> None:
-    """Persist the current DB path to config.json."""
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(
-        json.dumps({"db_path": db_path}, indent=2),
-        encoding="utf-8",
-    )
-
-
-# Bump when a breaking schema change makes old data incompatible.
-DATA_VERSION = 1
-
-
-def _check_data_compatibility() -> None:
-    """Archive old data files if schema version is incompatible, then stamp current version."""
-    import shutil
-    from datetime import datetime
-
-    version_file = _DATA_DIR / "data_version.json"
-
-    if version_file.exists():
-        try:
-            stored = json.loads(version_file.read_text(encoding="utf-8")).get("version", 0)
-        except (json.JSONDecodeError, OSError):
-            stored = 0
-
-        if stored != DATA_VERSION:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            archive_dir = _DATA_DIR / f"archive_{timestamp}"
-            archive_dir.mkdir(parents=True)
-            for f in (
-                list(_DATA_DIR.glob("*.db"))
-                + list(_DATA_DIR.glob("*.db-*"))
-                + list(_DATA_DIR.glob("*.json"))
-            ):
-                shutil.move(str(f), str(archive_dir / f.name))
-            logger.warning(
-                f"Data version mismatch (stored={stored}, current={DATA_VERSION}). "
-                f"Old data archived to {archive_dir}"
-            )
-
-    _DATA_DIR.mkdir(parents=True, exist_ok=True)
-    version_file.write_text(json.dumps({"version": DATA_VERSION}), encoding="utf-8")
-
-
-# Unified conversation history store (SQLite-backed, shared across all endpoints)
-_check_data_compatibility()
-conversation_store = ConversationStore(db_path=_read_db_path_from_config())
-
-# MCP client manager (connects to external MCP servers)
-MCP_CONFIG_PATH = _DATA_DIR / "mcp_servers.json"
-mcp_manager = MCPClientManager(config_path=MCP_CONFIG_PATH)
+# Profile store — owns the active profile folder and its JSON files.
+# It runs the per-profile data-version compatibility check and writes the
+# active-profile pointer file. ConversationStore and MCPClientManager open
+# their files inside the profile folder it manages.
+profile_store = ProfileStore(resolve_initial_profile_dir())
+conversation_store = ConversationStore(db_path=str(profile_store.db_path))
+mcp_manager = MCPClientManager(config_path=profile_store.mcp_config_path)
 
 
 @asynccontextmanager
@@ -192,6 +132,21 @@ def sse_response(event_generator: AsyncGenerator[dict, None]) -> StreamingRespon
             yield f"event: {event_type}\ndata: {data}\n\n".encode("utf-8")
     return StreamingResponse(encode_sse(), media_type="text/event-stream")
 
+
+async def _tracked(gen: AsyncGenerator[dict, None]) -> AsyncGenerator[dict, None]:
+    """Wrap an SSE generator so the active-streams counter is bumped while it runs.
+
+    The counter is read by GET /api/profile and gates POST /api/profile/path.
+    Increment happens on first iteration; decrement runs in finally so it fires
+    even on client disconnect or generator-close.
+    """
+    profile_store.increment_active_streams()
+    try:
+        async for ev in gen:
+            yield ev
+    finally:
+        profile_store.decrement_active_streams()
+
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok", "service": "wordllms-backend-langgraph"}
@@ -242,7 +197,7 @@ async def chat_completion(request: ChatRequest):
                 yield {"event": event["event"], "data": json.dumps(event["data"])}
         except Exception as e:
             yield {"event": "error", "data": json.dumps({"error": str(e)})}
-    return sse_response(generate())
+    return sse_response(_tracked(generate()))
 
 # --- Agent Endpoint (LangGraph Start) ---
 @app.post("/api/agent")
@@ -286,7 +241,7 @@ async def agent_completion(request: AgentRequest):
         except Exception as e:
              yield {"event": "error", "data": json.dumps({"error": str(e)})}
 
-    return sse_response(generate())
+    return sse_response(_tracked(generate()))
 
 # --- Agent Continue Endpoint (LangGraph Resume) ---
 @app.post("/api/agent/continue")
@@ -326,7 +281,7 @@ async def agent_continue(request: AgentContinueRequest):
         except Exception as e:
             yield {"event": "error", "data": json.dumps({"error": str(e)})}
 
-    return sse_response(generate())
+    return sse_response(_tracked(generate()))
 
 @app.post("/api/multiagent")
 async def multiagent_completion(request: MultiAgentRequest):
@@ -431,8 +386,8 @@ async def multiagent_completion(request: MultiAgentRequest):
 
         except Exception as e:
             yield {"event": "error", "data": json.dumps({"error": str(e)})}
-    
-    return sse_response(generate())
+
+    return sse_response(_tracked(generate()))
 
 
 @app.post("/api/multiagent/continue")
@@ -451,7 +406,7 @@ async def multiagent_continue(request: MultiAgentContinueRequest):
         except Exception as e:
             yield {"event": "error", "data": json.dumps({"error": str(e)})}
 
-    return sse_response(generate())
+    return sse_response(_tracked(generate()))
 
 
 # --- MCP Server Management Endpoints ---
@@ -580,47 +535,100 @@ async def fork_conversation(request: ForkRequest):
     return {"ok": True}
 
 
-# --- History Path Endpoints ---
+# --- Profile Endpoints ---
 
-@app.get("/api/history/path")
-async def get_history_path():
-    return {"path": conversation_store.db_path}
+@app.get("/api/profile")
+async def get_profile():
+    """Full snapshot: path + settings + prompts + active_streams.
+
+    Called once at app startup by the frontend to hydrate the profile store,
+    and again after a profile switch.
+    """
+    return profile_store.snapshot()
 
 
-@app.post("/api/history/path")
-async def set_history_path(request: HistoryPathRequest):
+def _enforce_browse_root(target: Path) -> Path:
+    """Reject paths that escape the volume mount when running in Docker."""
+    root = get_browse_root()
+    if root is None:
+        return target
+    try:
+        target.resolve().relative_to(root)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Profile must live under the mounted volume {root}. "
+                "Pick a subfolder of the host directory you mounted."
+            ),
+        )
+    return target
+
+
+@app.post("/api/profile/path")
+async def set_profile_path(request: ProfilePathRequest):
+    """Switch the active profile folder.
+
+    Refuses with 409 if any SSE stream is currently active — the user must
+    wait for ongoing work to finish before switching.
+    """
     new_path = request.path.strip()
     if not new_path:
-        new_path = DEFAULT_DB_PATH
-    else:
-        resolved = Path(new_path)
-        if not resolved.is_absolute():
-            new_path = str(_DATA_DIR / resolved)
+        raise HTTPException(status_code=400, detail="Profile path is required")
+    target = Path(new_path).expanduser()
+    if not target.is_absolute():
+        raise HTTPException(status_code=400, detail="Profile path must be absolute")
+    _enforce_browse_root(target)
 
-    # Validate that the parent directory exists or can be created
-    parent = Path(new_path).parent
     try:
-        parent.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        raise ValueError(f"Cannot create directory {parent}: {e}")
+        profile_store.rebind(target)
+    except RuntimeError as e:
+        # Active streams — frontend should have disabled the UI, but enforce here too.
+        raise HTTPException(status_code=409, detail=str(e))
 
-    conversation_store.switch_database(new_path)
-    _write_db_path_to_config(new_path)
-    return {"path": new_path}
+    # Reopen conversation DB and reload MCP servers against the new folder.
+    conversation_store.switch_database(str(profile_store.db_path))
+    await mcp_manager.reload_from(profile_store.mcp_config_path)
+
+    return profile_store.snapshot()
 
 
-@app.get("/api/history/browse-dir")
+@app.put("/api/profile/settings")
+async def save_profile_settings(payload: dict):
+    """Replace settings.json with the given dict. Frontend owns the schema."""
+    profile_store.save_settings(payload)
+    return {"ok": True}
+
+
+@app.put("/api/profile/prompts")
+async def save_profile_prompts(payload: dict):
+    """Replace prompts.json with the given dict. Frontend owns the schema."""
+    profile_store.save_prompts(payload)
+    return {"ok": True}
+
+
+@app.get("/api/profile/browse-dir")
 async def browse_directory(path: str = ""):
-    """List directory contents for the web-based file browser."""
-    target = Path(path) if path else Path(conversation_store.db_path).parent
+    """Directory listing for the profile-folder picker. Folders only.
+
+    In Docker, browsing is clamped to the volume mount so the user can't
+    pick a container-only path.
+    """
+    root = get_browse_root()
+    target = Path(path).expanduser() if path else (root or profile_store.path)
+    _enforce_browse_root(target)
     if not target.exists() or not target.is_dir():
         raise HTTPException(status_code=400, detail=f"Directory not found: {target}")
     try:
-        entries = []
-        for item in sorted(target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
-            if item.is_dir() or item.suffix == ".db":
-                entries.append({"name": item.name, "path": str(item), "is_dir": item.is_dir()})
-        parent = str(target.parent) if target.parent != target else None
+        entries = [
+            {"name": item.name, "path": str(item), "is_dir": True}
+            for item in sorted(target.iterdir(), key=lambda x: x.name.lower())
+            if item.is_dir()
+        ]
+        # Suppress 'parent_path' once we hit the browse root so the UI can't
+        # navigate above it.
+        at_root = root is not None and target.resolve() == root
+        parent = None if (at_root or target.parent == target) else str(target.parent)
         return {"current_path": str(target), "parent_path": parent, "entries": entries}
     except PermissionError:
         raise HTTPException(status_code=403, detail=f"Permission denied: {target}")

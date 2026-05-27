@@ -233,6 +233,18 @@ class MCPClientManager:
                     cfg.auto_connect = False
                     self._save_configs()
 
+    async def reload_from(self, new_config_path: Path) -> None:
+        """Disconnect everything, switch to a new mcp_servers.json, auto-connect.
+
+        Called by the profile-switch orchestration in main.py.
+        """
+        await self.disconnect_all()
+        self._configs.clear()
+        self._langchain_tools.clear()
+        self._config_path = new_config_path
+        self._load_configs()
+        await self.auto_connect_servers()
+
     # --- Tool Wrapping ---
 
     def _wrap_mcp_tool(self, server_id: str, safe_server_name: str,

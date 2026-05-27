@@ -111,7 +111,6 @@ export const Setting_Names = [
   'autoSwitchModeAfterCollaborative',
   'attachmentCharLimit',
   'llmTimeout',
-  'historyDbPath',
   'tavilyApiKey',
 ] as const
 
@@ -257,6 +256,5 @@ export const settingPreset = {
   autoSwitchModeAfterCollaborative: checkboxSetting(true, 'autoSwitchModeAfterCollaborative'),
   attachmentCharLimit: inputNumSetting(100000, 'attachmentCharLimit', 'maxTokens'),
   llmTimeout: inputNumSetting(90, 'llmTimeout', 'maxTokens'),
-  historyDbPath: inputSetting('', 'historyDbPath'),
   tavilyApiKey: inputSetting('', 'tavilyApiKey'),
 } as const satisfies Record<SettingNames, ISettingOption<any>>

@@ -14,7 +14,6 @@ export const localStorageKey = {
   autoSwitchModeAfterCollaborative: 'autoSwitchModeAfterCollaborative',
   attachmentCharLimit: 'attachmentCharLimit',
   llmTimeout: 'llmTimeout',
-  historyDbPath: 'historyDbPath',
   tavilyApiKey: 'tavilyApiKey',
   threadId: 'threadId',
   // openai api

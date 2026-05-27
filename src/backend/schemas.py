@@ -233,8 +233,8 @@ class ThreadSaveRequest(BaseModel):
     updatedAt: str | None = None
 
 
-class HistoryPathRequest(BaseModel):
-    """Request to switch the conversation history database path."""
+class ProfilePathRequest(BaseModel):
+    """Request to switch the active profile folder."""
     path: str
 
 

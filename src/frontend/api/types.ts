@@ -1,8 +1,8 @@
-import { Messages } from '@langchain/langgraph'
+import { BaseMessage } from '@langchain/core/messages'
 import { Ref } from 'vue'
 
 export interface BaseChatCompletionOptions {
-  messages: Messages
+  messages: BaseMessage[]
   errorIssue: Ref<boolean | string | null> // extends string for specific issues
   loading: Ref<boolean>
   maxContextTokens: number

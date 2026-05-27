@@ -4,7 +4,6 @@
     :thread-id="threadId"
     :current-checkpoint-id="currentCheckpointId"
     @close="showCheckpoints = false"
-    @restore="handleRestore"
     @select-thread="handleSelectThread"
   />
   <div
@@ -557,10 +556,9 @@ import {
   fetchThread,
   forkConversation,
   saveThreadToBackend,
-  setHistoryPath,
+  type SerializedMessage,
   truncateConversation,
 } from '@/api/backend'
-import { type CheckpointTuple, IndexedDBSaver, type SerializedMessage } from '@/api/checkpoints'
 import { insertFormattedResult, insertResult } from '@/api/common'
 import type { BotMetadata, MultiAgentConfig, MultiAgentExpertConfig } from '@/api/types'
 import { getAgentResponse, getChatResponse, getMultiAgentResponse } from '@/api/union'
@@ -576,7 +574,7 @@ import {
   type SystemPromptPreset,
 } from '@/utils/constant'
 import { localStorageKey } from '@/utils/enum'
-import { createGeneralTools, GeneralToolName } from '@/utils/generalTools'
+import { GeneralToolName } from '@/utils/generalTools'
 import { renderMarkdown } from '@/utils/markdown'
 import { message as messageUtil } from '@/utils/message'
 import { ToolCallMessage } from '@/utils/messageTypes'
@@ -686,6 +684,7 @@ onActivated(() => {
   quickActionSlots.value = getQuickActionSlots()
   systemPromptPresets.value = getSystemPromptPresets()
   resolveActiveSystemPrompt()
+  multiAgentConfig.value = loadMultiAgentConfig()
 })
 
 function getActiveWordToolNames(): WordToolName[] {
@@ -696,8 +695,11 @@ function getActiveWordToolNames(): WordToolName[] {
 }
 
 function getActiveTools() {
+  // Word tools run client-side via the backend interrupt() mechanism.
+  // General tools execute server-side; only their names need to travel
+  // with the request, so we represent them as bare {name} objects.
   const wordTools = createWordTools(getActiveWordToolNames())
-  const generalTools = createGeneralTools(enabledGeneralTools.value)
+  const generalTools = enabledGeneralTools.value.map(name => ({ name }))
   return [...generalTools, ...wordTools]
 }
 
@@ -753,7 +755,8 @@ const editingMessageIndex = ref<number | null>(null)
 const editText = ref('')
 let editTextareaEl: HTMLTextAreaElement | null = null
 const showCheckpoints = ref(false)
-const saver = new IndexedDBSaver()
+// LangGraph checkpoint persistence has been removed alongside browser-mode.
+// Thread restoration now uses the backend /api/threads endpoints.
 const currentCheckpointId = ref<string>('')
 
 // Context size tracking
@@ -1912,8 +1915,7 @@ watch(loading, val => {
 })
 
 function checkApiKey() {
-  const auth = {
-    type: settingForm.value.api as supportedPlatforms,
+  const baseAuth = {
     apiKey: settingForm.value.openaiAPIKey,
     azureAPIKey: settingForm.value.azureAPIKey,
     geminiAPIKey: settingForm.value.geminiAPIKey,
@@ -1921,7 +1923,35 @@ function checkApiKey() {
     anthropicAPIKey: settingForm.value.anthropicAPIKey,
     togetheraiAPIKey: settingForm.value.togetheraiAPIKey,
   }
-  if (!checkAuth(auth)) {
+
+  // In multi-agent mode, validate keys for every provider actually used by
+  // experts / overseer / (legacy) formatter — the top-bar provider dropdown
+  // is irrelevant to multi-agent routing.
+  if (mode.value === 'multiagent') {
+    const config = multiAgentConfig.value
+    if (!config) {
+      messageUtil.error(t('noAPIKey'))
+      return false
+    }
+    const expertCount = Math.min(multiAgentExpertCount.value, config.experts.length)
+    const usedProviders = new Set<supportedPlatforms>()
+    for (let i = 0; i < expertCount; i++) {
+      usedProviders.add(config.experts[i].provider as supportedPlatforms)
+    }
+    usedProviders.add(config.overseer.provider as supportedPlatforms)
+    if (config.operatingMode === 'legacy' && config.formatter?.model?.trim()) {
+      usedProviders.add(config.formatter.provider as supportedPlatforms)
+    }
+    for (const provider of usedProviders) {
+      if (!checkAuth({ ...baseAuth, type: provider })) {
+        messageUtil.error(`${t('noAPIKey')} (${provider})`)
+        return false
+      }
+    }
+    return true
+  }
+
+  if (!checkAuth({ ...baseAuth, type: settingForm.value.api as supportedPlatforms })) {
     messageUtil.error(t('noAPIKey'))
     return false
   }
@@ -2112,26 +2142,8 @@ async function initData() {
   insertType.value = (localStorage.getItem(localStorageKey.insertType) as insertTypes) || 'replace'
 }
 
-async function handleRestore(checkpointId: string) {
-  currentCheckpointId.value = checkpointId
-  showCheckpoints.value = false
-
-  // Fetch the history up to the selected checkpoint
-  const checkpointTuple = await saver.getTuple({
-    configurable: { thread_id: threadId.value, checkpoint_id: checkpointId },
-  })
-
-  if (checkpointTuple) {
-    const messages = checkpointTuple.checkpoint.channel_values.messages
-    if (messages && Array.isArray(messages)) {
-      history.value = messages
-        .filter((msg: any) => ['human', 'ai'].includes(msg.type))
-        .map((msg: any) => {
-          return msg.type === 'human' ? new HumanMessage(msg.content) : new AIMessage(msg.content)
-        })
-    }
-  }
-}
+// LangGraph mid-thread checkpoint restoration is no longer supported.
+// CheckPointsPage emits 'select-thread' for full-thread loading instead.
 
 async function getThreadCreatedAt(targetThreadId: string): Promise<string> {
   const existing = await fetchThread(targetThreadId)
@@ -2282,15 +2294,8 @@ onBeforeMount(async () => {
   initData()
   resolveActiveSystemPrompt()
 
-  // Sync history DB path with backend if user has configured one
-  const storedDbPath = localStorage.getItem(localStorageKey.historyDbPath)
-  if (storedDbPath) {
-    try {
-      await setHistoryPath(storedDbPath)
-    } catch (e) {
-      console.warn('[HomePage] Failed to sync history DB path with backend:', e)
-    }
-  }
+  // Profile folder is owned by the backend and hydrated at bootstrap
+  // (see api/profile.ts). No per-component sync needed here.
 
   // Watch for multiAgentConfig changes in localStorage
   window.addEventListener('storage', e => {

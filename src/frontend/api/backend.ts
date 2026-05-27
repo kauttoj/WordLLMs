@@ -1035,10 +1035,21 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
 // Thread CRUD (GUI display history, stored in backend SQLite)
 // ---------------------------------------------------------------------------
 
+import type { BotMetadata } from './types'
+
+export interface SerializedMessage {
+  role: 'user' | 'assistant' | 'system' | 'tool_call'
+  content: string
+  timestamp: number
+  metadata?: BotMetadata
+  toolName?: string
+  attachments?: { filename: string }[]
+}
+
 export interface BackendThread {
   id: string
   title: string
-  messages: any[]
+  messages: SerializedMessage[]
   mode: string
   provider: string
   model: string
@@ -1143,51 +1154,7 @@ export async function forkConversation(
   }
 }
 
-// ---------------------------------------------------------------------------
-// History database path
-// ---------------------------------------------------------------------------
-
-export async function getHistoryPath(): Promise<string> {
-  const backendUrl = getBackendUrl()
-  const response = await fetch(`${backendUrl}/api/history/path`)
-  if (!response.ok) {
-    throw new Error(`Failed to get history path: ${response.status}`)
-  }
-  const data = await response.json()
-  return data.path ?? ''
-}
-
-export async function setHistoryPath(path: string): Promise<string> {
-  const backendUrl = getBackendUrl()
-  const response = await fetch(`${backendUrl}/api/history/path`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path }),
-  })
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`Failed to set history path: ${response.status} ${errorText.substring(0, 200)}`)
-  }
-  const data = await response.json()
-  return data.path ?? path
-}
-
-export async function browseDirContents(
-  path: string,
-): Promise<{
-  current_path: string
-  parent_path: string | null
-  entries: { name: string; path: string; is_dir: boolean }[]
-}> {
-  const backendUrl = getBackendUrl()
-  const url = `${backendUrl}/api/history/browse-dir${path ? `?path=${encodeURIComponent(path)}` : ''}`
-  const response = await fetch(url)
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}))
-    throw new Error(data.detail ?? `Failed to list directory: ${response.status}`)
-  }
-  return response.json()
-}
+// Profile path / browse helpers now live in api/profile.ts.
 
 // ---------------------------------------------------------------------------
 // MCP Server Management

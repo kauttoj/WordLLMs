@@ -104,9 +104,10 @@
             </SettingCard>
             <SettingCard>
               <CustomInput
-                v-model="settingForm.historyDbPath"
-                :title="$t('historyDbPathLabel')"
-                :placeholder="$t('historyDbPathPlaceholder')"
+                v-model="profilePathInput"
+                :title="$t('profilePathLabel')"
+                :placeholder="$t('profilePathPlaceholder')"
+                :disabled="activeStreams > 0"
               >
                 <template #input-extra>
                   <CustomButton
@@ -114,11 +115,26 @@
                     text=""
                     class="bg-surface p-2!"
                     type="secondary"
+                    :disabled="activeStreams > 0"
                     @click="browseDbFile"
+                  />
+                  <CustomButton
+                    :text="$t('profileSwitchButton')"
+                    type="primary"
+                    class="ml-1"
+                    :disabled="activeStreams > 0 || !profilePathInput.trim() || toContainerPath(profilePathInput.trim()) === profilePath"
+                    @click="applyProfileSwitch"
                   />
                 </template>
               </CustomInput>
-              <!-- Server-side file browser -->
+              <div class="mt-1 text-xs text-secondary">
+                <span>{{ $t('profileActiveLabel') }}: </span>
+                <span class="text-main">{{ toHostPath(profilePath) || '\u2014' }}</span>
+                <span v-if="activeStreams > 0" class="ml-2 text-amber-500">
+                  {{ $t('profileSwitchBusy') }}
+                </span>
+              </div>
+              <!-- Server-side directory browser -->
               <div v-show="fileBrowser.isOpen" class="mt-2 rounded-md border border-border bg-bg-tertiary p-2 text-sm">
                 <div class="mb-1.5 flex items-center gap-2">
                   <button
@@ -128,7 +144,13 @@
                   >
                     &uarr; Up
                   </button>
-                  <span class="flex-1 truncate text-xs text-tertiary">{{ fileBrowser.currentPath }}</span>
+                  <span class="flex-1 truncate text-xs text-tertiary">{{ fileBrowser.currentDisplay }}</span>
+                  <button
+                    class="shrink-0 text-secondary hover:text-main"
+                    @click="selectDbFile(fileBrowser.currentPath)"
+                  >
+                    {{ $t('profilePickCurrent') }}
+                  </button>
                   <button class="shrink-0 text-secondary hover:text-main" @click="fileBrowser.isOpen = false">
                     &times;
                   </button>
@@ -138,13 +160,13 @@
                     v-for="entry in fileBrowser.entries"
                     :key="entry.path"
                     class="flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-1 hover:bg-bg-secondary"
-                    @click="entry.is_dir ? navigateDir(entry.path) : selectDbFile(entry.path)"
+                    @click="navigateDir(entry.path)"
                   >
-                    <span class="shrink-0 text-xs">{{ entry.is_dir ? '\uD83D\uDCC1' : '\uD83D\uDCC4' }}</span>
+                    <span class="shrink-0 text-xs">&#128193;</span>
                     <span class="truncate">{{ entry.name }}</span>
                   </div>
                   <div v-if="fileBrowser.entries.length === 0" class="px-1.5 py-1 text-tertiary">
-                    No .db files or subdirectories
+                    {{ $t('profileBrowseEmpty') }}
                   </div>
                 </div>
               </div>
@@ -754,16 +776,22 @@ import { useRouter } from 'vue-router'
 
 import {
   addMcpServer,
-  browseDirContents,
   connectMcpServer,
   deleteMcpServer,
   disconnectMcpServer,
   fetchMcpServers,
-  getHistoryPath,
   type McpServerInfo,
   type McpToolInfo,
-  setHistoryPath,
 } from '@/api/backend'
+import {
+  activeStreams,
+  browseProfileDir,
+  profileHostPath,
+  profilePath,
+  switchProfile,
+  toContainerPath,
+  toHostPath,
+} from '@/api/profile'
 import type { MultiAgentConfig } from '@/api/types'
 import CustomButton from '@/components/CustomButton.vue'
 import CustomInput from '@/components/CustomInput.vue'
@@ -1342,53 +1370,57 @@ watch(
   { deep: true },
 )
 
-// Sync history DB path with backend when it changes in settings
-let historyDbPathDebounceTimer: ReturnType<typeof setTimeout> | null = null
-let historyDbPathSkipNextWatch = false
-watch(
-  () => settingForm.value.historyDbPath,
-  newPath => {
-    if (historyDbPathSkipNextWatch) {
-      historyDbPathSkipNextWatch = false
-      return
-    }
-    if (historyDbPathDebounceTimer) clearTimeout(historyDbPathDebounceTimer)
-    historyDbPathDebounceTimer = setTimeout(() => {
-      setHistoryPath(newPath as string).catch(err => {
-        console.error('[Settings] Failed to set history path:', err)
-      })
-    }, 800)
-  },
-)
+// Profile folder picker — the input/browser show HOST paths (Windows paths
+// the user understands). On submit we translate back to the container path
+// before POSTing. In source mode the two are identical.
+const profilePathInput = ref<string>(toHostPath(profilePath.value || ''))
+watch(profilePath, newPath => {
+  profilePathInput.value = toHostPath(newPath)
+})
 
-// Server-side file browser state
+async function applyProfileSwitch() {
+  const target = toContainerPath(profilePathInput.value.trim())
+  if (!target || target === profilePath.value) return
+  try {
+    await switchProfile(target)
+    // switchProfile reloads the page; no further code runs here.
+  } catch (err) {
+    console.error('[Settings] Profile switch failed:', err)
+    alert(err instanceof Error ? err.message : String(err))
+  }
+}
+
+// Server-side directory browser state. We keep CONTAINER paths internally
+// (the backend works with those) but render entries with their host names.
 const fileBrowser = ref({
   isOpen: false,
   currentPath: '',
+  currentDisplay: '',
   parentPath: null as string | null,
   entries: [] as { name: string; path: string; is_dir: boolean }[],
 })
 
 const navigateDir = async (path: string) => {
-  const result = await browseDirContents(path)
+  const result = await browseProfileDir(path)
   fileBrowser.value = {
     isOpen: true,
     currentPath: result.current_path,
+    currentDisplay: toHostPath(result.current_path),
     parentPath: result.parent_path,
     entries: result.entries,
   }
 }
 
 const selectDbFile = (path: string) => {
-  settingForm.value.historyDbPath = path
+  profilePathInput.value = toHostPath(path)
   fileBrowser.value.isOpen = false
 }
 
 const browseDbFile = async () => {
   try {
-    await navigateDir('')
+    await navigateDir(profilePath.value || '')
   } catch (err) {
-    console.error('[Settings] Failed to open file browser:', err)
+    console.error('[Settings] Failed to open directory browser:', err)
     alert(err instanceof Error ? err.message : String(err))
   }
 }
@@ -1399,18 +1431,6 @@ onBeforeMount(async () => {
   loadMcpToolPreferences()
   loadMultiAgentConfig()
   loadMcpServers()
-
-  // Fetch the actual DB path from backend before setting up watchers,
-  // so the field shows the real path (including the default) instead of being empty.
-  try {
-    const actualPath = await getHistoryPath()
-    if (actualPath) {
-      historyDbPathSkipNextWatch = true
-      settingForm.value.historyDbPath = actualPath
-    }
-  } catch (err) {
-    console.error('[Settings] Failed to fetch history path from backend:', err)
-  }
 
   addWatch()
 })
