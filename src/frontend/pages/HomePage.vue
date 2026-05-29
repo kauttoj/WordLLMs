@@ -560,6 +560,7 @@ import {
   truncateConversation,
 } from '@/api/backend'
 import { insertFormattedResult, insertResult } from '@/api/common'
+import { activeStreams } from '@/api/profile'
 import type { BotMetadata, MultiAgentConfig, MultiAgentExpertConfig } from '@/api/types'
 import { getAgentResponse, getChatResponse, getMultiAgentResponse } from '@/api/union'
 import CustomButton from '@/components/CustomButton.vue'
@@ -1451,6 +1452,8 @@ async function processChat(
     return config
   }
 
+  activeStreams.value++
+  try {
   // Use multiagent mode if enabled
   if (isMultiAgentMode) {
     // Validate that multiagent configuration exists
@@ -1697,6 +1700,9 @@ async function processChat(
   refreshContextStats()
 
   scrollToBottom()
+  } finally {
+    activeStreams.value--
+  }
 }
 
 async function insertToDocument(content: string, type: insertTypes) {

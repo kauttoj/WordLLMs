@@ -1142,7 +1142,7 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
         searchText: {
           type: 'string',
           description:
-            'The visible text to search for. Newlines are stripped automatically; search works across paragraphs.',
+            'The visible text to search for. Newlines are stripped automatically; search works across paragraphs. Must not contain tabs, non-breaking spaces (U+00A0), soft hyphens (U+00AD), or control/zero-width characters — these appear in table cells and formatted regions but Word cannot search for them. If a long string fails, try a shorter unique substring.',
         },
         replaceText: {
           type: 'string',
@@ -1444,6 +1444,7 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
         range.load('text')
         await context.sync()
 
+        const deletedLen = (range.text ?? '').length
         if (range.text && range.text.length > 0) {
           range.delete()
         } else {
@@ -1454,7 +1455,7 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
           }
         }
         await context.sync()
-        return 'Successfully deleted text'
+        return deletedLen > 0 ? `Successfully deleted ${deletedLen} characters` : 'Successfully deleted text'
       })
     },
   },
@@ -1937,12 +1938,12 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
         startText: {
           type: 'string',
           description:
-            'Unique multi-word phrase (3-5+ words) marking selection start. Newlines are stripped automatically. Example: "In the previous section" not just "section".',
+            'Unique multi-word phrase (3-5+ words) marking selection start. Newlines are stripped automatically. Must not contain tabs, non-breaking spaces (U+00A0), soft hyphens (U+00AD), or control/zero-width characters. Example: "In the previous section" not just "section".',
         },
         endText: {
           type: 'string',
           description:
-            'Unique multi-word phrase (3-5+ words) marking selection end. Newlines are stripped automatically.',
+            'Unique multi-word phrase (3-5+ words) marking selection end. Newlines are stripped automatically. Must not contain tabs, non-breaking spaces (U+00A0), soft hyphens (U+00AD), or control/zero-width characters.',
         },
         matchCase: {
           type: 'boolean',
@@ -2034,12 +2035,14 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
         const selectionEnd = endResult.range.getRange('End')
         const selectionRange = selectionStart.expandTo(selectionEnd)
         selectionRange.select()
+        selectionRange.load('text')
         await context.sync()
 
         return JSON.stringify(
           {
             success: true,
             message: `Selected range from "${startText}" to "${endText}"`,
+            selectedCharCount: (selectionRange.text ?? '').length,
           },
           null,
           2,

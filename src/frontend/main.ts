@@ -2,7 +2,7 @@ import './index.css'
 
 import { createApp } from 'vue'
 
-import { bootstrapProfile, startStreamCountPoll } from './api/profile'
+import { bootstrapProfile } from './api/profile'
 import App from './App.vue'
 import { i18n } from './i18n'
 import router from './router'
@@ -29,8 +29,6 @@ const initApp = async () => {
     renderBackendDownError(err)
     return
   }
-  startStreamCountPoll()
-
   const app = createApp(App)
   const debounce = (fn: (...args: any[]) => void, delay?: number) => {
     let timer: number | null = null

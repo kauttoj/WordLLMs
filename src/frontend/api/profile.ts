@@ -263,25 +263,6 @@ export async function browseProfileDir(path: string): Promise<{
 }
 
 // ---------------------------------------------------------------------------
-// Active-stream polling — drives "switch profile disabled" UI.
-// ---------------------------------------------------------------------------
-
-let pollTimer: number | null = null
-
-export function startStreamCountPoll(intervalMs = 2000) {
-  if (pollTimer) return
-  pollTimer = window.setInterval(async () => {
-    try {
-      const snap = await fetchProfile()
-      activeStreams.value = snap.active_streams
-      profileHostPath.value = snap.host_path ?? ''
-    } catch {
-      // Backend hiccup; leave previous value.
-    }
-  }, intervalMs)
-}
-
-// ---------------------------------------------------------------------------
 // Bootstrap — call once before mounting the app.
 // ---------------------------------------------------------------------------
 

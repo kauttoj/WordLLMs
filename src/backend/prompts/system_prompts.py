@@ -84,6 +84,7 @@ def _build_tool_sections(tools: list) -> str:
         lines.append('When searching for text, use only visible text — strip line breaks from search strings.')
         if 'select_between_text' in tool_names:
             lines.append('When selecting by range anchors, choose unique multi-word phrases (3-5 words) that appear only once in the document.')
+            lines.append('When using range selection for deletions: ensure the start anchor uniquely identifies the intended target, not an earlier identical-looking entry. If the document contains duplicate entries, anchor on text unique to the duplicate instance rather than text shared with the original.')
         strategy.append('## Selection\n' + '\n'.join(f'- {l}' for l in lines))
 
     # Cursor, selection, and insertion order guidance

@@ -53,6 +53,7 @@ def create_web_search_tool(api_key: str):
         """
         raw = _api.raw_results(
             query=query,
+            exact_match=False,
             max_results=3,
             search_depth="basic",
             topic=topic or "general",
