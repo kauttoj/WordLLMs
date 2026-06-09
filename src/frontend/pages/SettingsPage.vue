@@ -305,11 +305,11 @@
                     </template>
                   </CustomInput>
                   <div
-                    v-if="customModelsMap[platform] && customModelsMap[platform].length > 0"
+                    v-if="getCustomModelsList(platform).length > 0"
                     class="flex flex-wrap gap-1.5"
                   >
                     <span
-                      v-for="model in customModelsMap[platform]"
+                      v-for="model in getCustomModelsList(platform)"
                       :key="model"
                       class="inline-flex items-center gap-1 rounded-sm border border-border p-1 text-xs text-secondary hover:bg-accent/20"
                     >
@@ -829,7 +829,6 @@ const settingsProvider = ref(localStorage.getItem(localStorageKey.api) || 'opena
 const wordToolsList = [...getGeneralToolDefinitions(), ...getWordToolDefinitions()]
 
 const newCustomModel = ref<Record<string, string>>({})
-const customModelsMap = ref<Record<string, string[]>>({})
 
 // Quick action slots management
 const quickActionSlots = ref<QuickActionSlot[]>(getQuickActionSlots())
@@ -980,14 +979,13 @@ const getCustomModelsKey = (platform: string): SettingNames | null => {
   return settingPreset[key] ? key : null
 }
 
-const loadCustomModels = () => {
-  const platforms = ['openai', 'anthropic', 'gemini', 'ollama', 'groq', 'azure', 'lmstudio', 'togetherai']
-  platforms.forEach(platform => {
-    const key = getCustomModelsKey(platform)
-    if (key && settingPreset[key].getFunc) {
-      customModelsMap.value[platform] = settingPreset[key].getFunc() as string[]
-    }
-  })
+// Custom models live on the shared reactive settingForm singleton (key
+// `${platform}CustomModels`). Reading/writing through it means add/remove
+// propagates instantly to HomePage and MultiAgentSettings without a restart.
+// The deep watcher in addWatch() persists settingForm changes via saveFunc.
+const getCustomModelsList = (platform: string): string[] => {
+  const key = getCustomModelsKey(platform)
+  return key ? ((settingForm.value[key] as string[]) ?? []) : []
 }
 
 const addCustomModel = (platform: string) => {
@@ -997,13 +995,9 @@ const addCustomModel = (platform: string) => {
   const key = getCustomModelsKey(platform)
   if (!key) return
 
-  if (!customModelsMap.value[platform]) {
-    customModelsMap.value[platform] = []
-  }
-
-  if (!customModelsMap.value[platform].includes(model)) {
-    customModelsMap.value[platform].push(model)
-    ;(settingPreset[key] as any).saveFunc(customModelsMap.value[platform])
+  const current = (settingForm.value[key] as string[]) ?? []
+  if (!current.includes(model)) {
+    ;(settingForm.value as any)[key] = [...current, model]
     newCustomModel.value[platform] = ''
   }
 }
@@ -1012,8 +1006,7 @@ const removeCustomModel = (platform: string, model: string) => {
   const key = getCustomModelsKey(platform)
   if (!key) return
 
-  customModelsMap.value[platform] = customModelsMap.value[platform].filter(m => m !== model)
-  ;(settingPreset[key] as any).saveFunc(customModelsMap.value[platform])
+  ;(settingForm.value as any)[key] = ((settingForm.value[key] as string[]) ?? []).filter(m => m !== model)
 
   // If the removed model was selected, switch to first available
   const selectKey = `${platform}ModelSelect` as SettingNames
@@ -1028,7 +1021,7 @@ const removeCustomModel = (platform: string, model: string) => {
 const getMergedModelOptions = (platform: string) => {
   const selectKey = `${platform}ModelSelect` as SettingNames
   const presetOptions = settingPreset[selectKey]?.optionList || []
-  const customModels = customModelsMap.value[platform] || []
+  const customModels = getCustomModelsList(platform)
 
   return [...customModels, ...presetOptions]
 }
@@ -1426,7 +1419,6 @@ const browseDbFile = async () => {
 }
 
 onBeforeMount(async () => {
-  loadCustomModels()
   loadToolPreferences()
   loadMcpToolPreferences()
   loadMultiAgentConfig()

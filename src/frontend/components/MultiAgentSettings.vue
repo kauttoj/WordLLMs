@@ -164,11 +164,13 @@ import {
   availableModelsForOllama,
   availableModelsForTogetherAI,
 } from '@/utils/constant'
+import useSettingForm from '@/utils/settingForm'
 
 import CustomInput from './CustomInput.vue'
 import SettingCard from './SettingCard.vue'
 
 const { t } = useI18n()
+const settingForm = useSettingForm()
 
 const props = defineProps<{
   modelValue: MultiAgentConfig
@@ -210,7 +212,10 @@ const formatterModel = computed({
   },
 })
 
-const getModelsForProvider = (provider: string): string[] => {
+// Preset (built-in) models per provider. Custom models are appended reactively
+// from the shared settingForm singleton (key `${provider}CustomModels`), so models
+// added/removed in Settings update these dropdowns live without a restart.
+const presetModelsForProvider = (provider: string): string[] => {
   switch (provider) {
     case 'openai':
       return availableModels
@@ -222,22 +227,19 @@ const getModelsForProvider = (provider: string): string[] => {
       return availableModelsForGroq
     case 'ollama':
       return availableModelsForOllama
-    case 'azure': {
-      const azureStored = localStorage.getItem('azureCustomModels')
-      const azureCustom: string[] = azureStored ? JSON.parse(azureStored) : []
-      return [...availableModelsForAzure, ...azureCustom]
-    }
-    case 'lmstudio': {
-      const lmStored = localStorage.getItem('lmstudioCustomModels')
-      return lmStored ? JSON.parse(lmStored) : []
-    }
-    case 'togetherai': {
-      const stored = localStorage.getItem('togetheraiCustomModels')
-      const custom: string[] = stored ? JSON.parse(stored) : []
-      return [...availableModelsForTogetherAI, ...custom]
-    }
+    case 'azure':
+      return availableModelsForAzure
+    case 'togetherai':
+      return availableModelsForTogetherAI
+    case 'lmstudio':
+      return []
     default:
       return []
   }
+}
+
+const getModelsForProvider = (provider: string): string[] => {
+  const custom = ((settingForm.value as Record<string, unknown>)[`${provider}CustomModels`] as string[]) ?? []
+  return [...presetModelsForProvider(provider), ...custom]
 }
 </script>

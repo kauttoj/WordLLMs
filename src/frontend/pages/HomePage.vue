@@ -1002,22 +1002,10 @@ const loadingTimeDisplay = computed(() => {
 
 // (Quick actions are now driven by enabledQuickActionSlots computed property)
 
-const getCustomModels = (key: string, oldKey: string): string[] => {
-  const stored = localStorage.getItem(key)
-  if (stored) {
-    try {
-      return JSON.parse(stored)
-    } catch {
-      return []
-    }
-  }
-  const oldModel = localStorage.getItem(oldKey)
-  if (oldModel && oldModel.trim()) {
-    return [oldModel]
-  }
-  return []
-}
-
+// Custom models are read from the shared reactive settingForm singleton (key
+// `${provider}CustomModels`), so additions/removals made in Settings appear here
+// immediately without a restart. Legacy single-model keys are migrated once at
+// startup by initializeSettings() in utils/settingForm.ts.
 const currentModelOptions = computed(() => {
   let presetOptions: string[] = []
   let customModels: string[] = []
@@ -1025,40 +1013,40 @@ const currentModelOptions = computed(() => {
   switch (settingForm.value.api) {
     case 'openai':
       presetOptions = settingPreset.openaiModelSelect.optionList || []
-      customModels = getCustomModels('customModels', 'customModel')
+      customModels = settingForm.value.openaiCustomModels as string[]
       break
     case 'anthropic':
       presetOptions = settingPreset.anthropicModelSelect.optionList || []
-      customModels = getCustomModels('anthropicCustomModels', 'anthropicCustomModel')
+      customModels = settingForm.value.anthropicCustomModels as string[]
       break
     case 'gemini':
       presetOptions = settingPreset.geminiModelSelect.optionList || []
-      customModels = getCustomModels('geminiCustomModels', 'geminiCustomModel')
+      customModels = settingForm.value.geminiCustomModels as string[]
       break
     case 'ollama':
       presetOptions = settingPreset.ollamaModelSelect.optionList || []
-      customModels = getCustomModels('ollamaCustomModels', 'ollamaCustomModel')
+      customModels = settingForm.value.ollamaCustomModels as string[]
       break
     case 'groq':
       presetOptions = settingPreset.groqModelSelect.optionList || []
-      customModels = getCustomModels('groqCustomModels', 'groqCustomModel')
+      customModels = settingForm.value.groqCustomModels as string[]
       break
     case 'azure':
       presetOptions = settingPreset.azureModelSelect.optionList || []
-      customModels = getCustomModels('azureCustomModels', 'azureDeploymentName')
+      customModels = settingForm.value.azureCustomModels as string[]
       break
     case 'lmstudio':
-      customModels = getCustomModels('lmstudioCustomModels', 'lmstudioCustomModel')
+      customModels = settingForm.value.lmstudioCustomModels as string[]
       break
     case 'togetherai':
       presetOptions = settingPreset.togetheraiModelSelect.optionList || []
-      customModels = getCustomModels('togetheraiCustomModels', 'togetheraiCustomModel')
+      customModels = settingForm.value.togetheraiCustomModels as string[]
       break
     default:
       return []
   }
 
-  return [...presetOptions, ...customModels]
+  return [...presetOptions, ...(customModels ?? [])]
 })
 
 const shouldShowModelSelector = computed(() => {
