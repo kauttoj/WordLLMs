@@ -275,6 +275,14 @@ def _create_model_litellm(
     elif provider == "togetherai":
         litellm_model = f"together_ai/{model}"
         kwargs["api_key"] = credentials["api_key"]
+        # litellm keeps a static allowlist of together_ai models it believes support
+        # function calling. Models not on it (e.g. zai-org/GLM-5.1,
+        # nvidia/nemotron-3-ultra-550b-a55b, and any user custom model) have their
+        # tools/tool_choice SILENTLY dropped under drop_params=True, so the model
+        # only sees tool descriptions in the system prompt and "calls" them as text.
+        # Force these params through; Together's API supports them natively. No-op for
+        # plain chat (tools absent) and for already-supported models like Qwen.
+        kwargs["model_kwargs"] = {"allowed_openai_params": ["tools", "tool_choice"]}
 
     else:
         raise ValueError(f"Unknown provider: {provider}")
