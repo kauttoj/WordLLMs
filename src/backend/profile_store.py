@@ -148,6 +148,10 @@ class ProfileStore:
     def mcp_config_path(self) -> Path:
         return self._dir / "mcp_servers.json"
 
+    @property
+    def model_costs_path(self) -> Path:
+        return self._dir / "model_costs.json"
+
     # --- In-flight stream tracking (used by SSE handlers) ---
 
     def increment_active_streams(self) -> None:

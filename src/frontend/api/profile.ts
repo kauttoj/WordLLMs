@@ -29,6 +29,7 @@ const PROFILE_SETTING_KEYS = new Set<string>([
   'useWordFormatting', 'useSelectedText', 'includeDocument',
   'agentMaxIterations', 'autoSwitchModeAfterCollaborative',
   'attachmentCharLimit', 'llmTimeout', 'tavilyApiKey',
+  'costDisplayCurrency', 'costCurrencyRate',
   'defaultSystemPrompt', 'defaultPrompt',
   // OpenAI
   'openaiReasoningEffort', 'apiKey', 'model', 'customModel', 'customModels',

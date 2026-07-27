@@ -112,6 +112,8 @@ export const Setting_Names = [
   'attachmentCharLimit',
   'llmTimeout',
   'tavilyApiKey',
+  'costDisplayCurrency',
+  'costCurrencyRate',
 ] as const
 
 export type SettingNames = (typeof Setting_Names)[number]
@@ -257,4 +259,6 @@ export const settingPreset = {
   attachmentCharLimit: inputNumSetting(100000, 'attachmentCharLimit', 'maxTokens'),
   llmTimeout: inputNumSetting(90, 'llmTimeout', 'maxTokens'),
   tavilyApiKey: inputSetting('', 'tavilyApiKey'),
+  costDisplayCurrency: selectSetting('USD', 'costDisplayCurrency', ['USD', 'EUR']),
+  costCurrencyRate: inputNumSetting(0.92, 'costCurrencyRate', 'temperature'),
 } as const satisfies Record<SettingNames, ISettingOption<any>>

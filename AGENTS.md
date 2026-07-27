@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Project Overview
 
@@ -202,7 +202,7 @@ Turn 3 (chat mode):
 - `parseSSEStream()` in `src/frontend/api/backend.ts` parses events and invokes callbacks
 - Accumulates `fullContent` for text events (backend sends accumulated content per event)
 
-**Error Handling Philosophy** (per CLAUDE.md coding principles):
+**Error Handling Philosophy** (per AGENTS.md coding principles):
 - **Fail loudly**: All errors propagate to user, no silent catches
 - Network errors display actual error messages (not generic "Something went wrong")
 - SSE parse failures break processing loop and show error

@@ -28,6 +28,7 @@ from .agents.chat_multiagent import stream_multiagent, resume_multiagent
 from .conversation_store import ConversationStore
 from .mcp_integration import MCPClientManager
 from .profile_store import ProfileStore, get_browse_root, resolve_initial_profile_dir
+from . import pricing
 
 import logging
 
@@ -53,6 +54,7 @@ def adjust_timeout_for_provider(timeout: int, provider: str) -> int:
 profile_store = ProfileStore(resolve_initial_profile_dir())
 conversation_store = ConversationStore(db_path=str(profile_store.db_path))
 mcp_manager = MCPClientManager(config_path=profile_store.mcp_config_path)
+pricing.configure_model_costs_path(profile_store.model_costs_path)
 
 
 @asynccontextmanager
@@ -589,6 +591,7 @@ async def set_profile_path(request: ProfilePathRequest):
     # Reopen conversation DB and reload MCP servers against the new folder.
     conversation_store.switch_database(str(profile_store.db_path))
     await mcp_manager.reload_from(profile_store.mcp_config_path)
+    pricing.configure_model_costs_path(profile_store.model_costs_path)
 
     return profile_store.snapshot()
 

@@ -1,5 +1,6 @@
 import { BaseMessage } from '@langchain/core/messages'
 import { Ref } from 'vue'
+import type { CostInfo } from './backend'
 
 export interface BaseChatCompletionOptions {
   messages: BaseMessage[]
@@ -17,6 +18,7 @@ export interface BaseChatCompletionOptions {
   attachmentCharLimit: number
   documentContent?: string // Full Word document text, attached fresh every turn (chat mode only)
   onStream: (text: string, speaker?: string, forceNew?: boolean) => void
+  onCost?: (cost: CostInfo) => void // Cost of the full response (attaches to last bubble)
 }
 
 export interface OpenAIOptions extends BaseChatCompletionOptions {

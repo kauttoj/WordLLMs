@@ -31,6 +31,7 @@ try:
         inject_behavior,
     )
     from ..schemas import to_langchain_messages
+    from .. import pricing
 except ImportError:
     from agents.utils import extract_text_from_content
     from agents.context import trim_to_fit
@@ -45,6 +46,7 @@ except ImportError:
         inject_behavior,
     )
     from schemas import to_langchain_messages
+    import pricing
 
 # Max retries when an expert LLM returns empty content (transient provider quirk)
 MAX_EMPTY_RETRIES = 2
@@ -311,6 +313,29 @@ def get_model(config: dict, role: str, index: int = 0) -> BaseChatModel:
     elif role == "synthesizer":
         return config["configurable"]["synthesizer_model"]
     raise ValueError(f"Unknown role {role}")
+
+def _append_cost(acc: list | None, model: BaseChatModel, response) -> None:
+    """Append one LLM call's cost dict to a shared accumulator list.
+
+    No-op when the call has no usage (e.g. structured-output parses) — pricing
+    returns None, which aggregate_costs ignores.
+    """
+    if acc is None:
+        return
+    in_tok, out_tok = pricing.usage_from_message(response)
+    acc.append(pricing.compute_cost(model, input_tokens=in_tok, output_tokens=out_tok))
+
+
+def _record_cost(config: dict, model: BaseChatModel, response) -> None:
+    """Append this in-graph LLM call's cost to the per-response accumulator.
+
+    A multiagent response = many LLM calls (experts, synthesizer, overseer),
+    each possibly a different model. Costs are collected in
+    config["configurable"]["cost_acc"] and summed at the done event via
+    pricing.aggregate_costs.
+    """
+    _append_cost(config["configurable"].get("cost_acc"), model, response)
+
 
 def get_llm_timeout(config: dict) -> int:
     return config["configurable"]["llm_timeout"]
@@ -619,6 +644,7 @@ def parallel_expert_node(state: MultiAgentState, config):
     print(f"[MultiAgent:ParallelExpert]   Invoking model...")
     model_with_tools = bind_tools_compat(model, tools)
     response = invoke_with_timeout(model_with_tools, messages, get_llm_timeout(config), label=expert_name)
+    _record_cost(config, model, response)
 
     # If tool calls, add to history temporarily for execution
     if response.tool_calls:
@@ -682,6 +708,7 @@ def parallel_tool_post_processing_node(state: MultiAgentState, config):
     print(f"[MultiAgent:ParallelPostProcess]   Invoking model for refinement...")
     model_with_tools = bind_tools_compat(model, tools)
     response = invoke_with_timeout(model_with_tools, messages, get_llm_timeout(config), label=f"{expert_name}:PostProcess")
+    _record_cost(config, model, response)
 
     # If more tool calls, track caller for routing
     if response.tool_calls:
@@ -719,6 +746,7 @@ async def _run_single_expert_async(
     llm_timeout: int,
     max_tool_rounds: int,
     additional_system_prompt: str = "",
+    cost_acc: list | None = None,
 ) -> tuple[str, str, list[dict]]:
     """Run a single expert asynchronously outside LangGraph.
 
@@ -771,6 +799,7 @@ async def _run_single_expert_async(
             response = await ainvoke_with_timeout(
                 model_with_tools, messages, llm_timeout, label=expert_name
             )
+            _append_cost(cost_acc, model, response)
 
             if not response.tool_calls:
                 content_text = extract_text_from_content(response.content)
@@ -869,6 +898,7 @@ def synthesizer_node(state: MultiAgentState, config):
     print(f"[MultiAgent:Synthesizer]   Invoking model...")
     model_with_tools = bind_tools_compat(model, tools)
     response = invoke_with_timeout(model_with_tools, messages, get_llm_timeout(config), label="Synthesizer")
+    _record_cost(config, model, response)
 
     # Tag the synthesizer response
     response.name = "Synthesizer"
@@ -960,6 +990,7 @@ def collab_expert_node(state: MultiAgentState, config):
             bound_model = model
         for empty_attempt in range(MAX_EMPTY_RETRIES + 1):
             response = invoke_with_timeout(bound_model, messages, get_llm_timeout(config), label=expert_name)
+            _record_cost(config, model, response)
             print(f"[MultiAgent:CollabExpert]   Stop reason: {_get_stop_reason(response)}")
             response.name = expert_name
 
@@ -1035,6 +1066,7 @@ def collab_expert_node(state: MultiAgentState, config):
         bound_model = bind_tools_and_schema(model, tools, ExpertOutput)
         for empty_attempt in range(MAX_EMPTY_RETRIES + 1):
             response = invoke_with_timeout(bound_model, messages, get_llm_timeout(config), label=expert_name)
+            _record_cost(config, model, response)
             print(f"[MultiAgent:CollabExpert]   Stop reason: {_get_stop_reason(response)}")
 
             # Tag message with expert name
@@ -1186,6 +1218,7 @@ def final_answer_node(state: MultiAgentState, config):
     print(f"[MultiAgent:FinalAnswer]   Invoking model...")
     model_with_tools = bind_tools_compat(model, tools)
     response = invoke_with_timeout(model_with_tools, messages, get_llm_timeout(config), label="FinalAnswer")
+    _record_cost(config, model, response)
     response.name = "Overseer"
 
     # Track caller for routing
@@ -1660,6 +1693,7 @@ async def _run_parallel_experts(
     session_id: str,
     max_tool_rounds: int,
     additional_system_prompt: str = "",
+    cost_acc: list | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Run all experts in parallel and yield SSE events.
 
@@ -1688,6 +1722,7 @@ async def _run_parallel_experts(
             llm_timeout=llm_timeout,
             max_tool_rounds=max_tool_rounds,
             additional_system_prompt=additional_system_prompt,
+            cost_acc=cost_acc,
         ))
         tasks.append(task)
 
@@ -1811,6 +1846,10 @@ async def stream_multiagent(
             "llm_timeout": llm_timeout,
             "legacy_mode": legacy_mode,
             "formatter_model": formatter_model,
+            # Shared per-response cost accumulator: every expert/synth/overseer
+            # LLM call appends its cost dict; summed at the done event. Persists
+            # across stream->resume via _session_config_cache.
+            "cost_acc": [],
         },
         "recursion_limit": recursion_limit
     }
@@ -1870,6 +1909,7 @@ async def stream_multiagent(
                 session_id=thread_id,
                 max_tool_rounds=recursion_limit,
                 additional_system_prompt=additional_system_prompt or "",
+                cost_acc=config["configurable"]["cost_acc"],
             ):
                 if event["event"] == "_experts_done":
                     parallel_responses = event["data"]["parallel_responses"]
@@ -1977,7 +2017,8 @@ async def stream_multiagent(
                         conversation_id, turn, persona, mode, public_response,
                     )
                 conversation_store.unregister_thread(thread_id)
-            yield {"event": "done", "data": {"finish_reason": "stop"}}
+            cost = pricing.aggregate_costs(config["configurable"].get("cost_acc", []))
+            yield {"event": "done", "data": {"finish_reason": "stop", "cost": cost}}
             _session_config_cache.pop(thread_id, None)
             _session_graph_cache.pop(thread_id, None)
 
@@ -2068,7 +2109,8 @@ async def resume_multiagent(
                     if public_response:
                         conv_store.add_public_response(conv_id, turn, persona, mode, public_response)
                     conv_store.unregister_thread(multiagent_session_id)
-                yield {"event": "done", "data": {"finish_reason": "stop"}}
+                cost = pricing.aggregate_costs(config["configurable"].get("cost_acc", []))
+                yield {"event": "done", "data": {"finish_reason": "stop", "cost": cost}}
                 _session_config_cache.pop(multiagent_session_id, None)
                 _session_graph_cache.pop(multiagent_session_id, None)
 
@@ -2168,7 +2210,8 @@ async def resume_multiagent(
                             persona, state_mode, public_response,
                         )
                     conversation_store.unregister_thread(multiagent_session_id)
-            yield {"event": "done", "data": {"finish_reason": "stop"}}
+            cost = pricing.aggregate_costs(config["configurable"].get("cost_acc", []))
+            yield {"event": "done", "data": {"finish_reason": "stop", "cost": cost}}
             _session_config_cache.pop(multiagent_session_id, None)
             _session_graph_cache.pop(multiagent_session_id, None)
 

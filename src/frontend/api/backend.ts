@@ -247,6 +247,21 @@ const BACKEND_TO_FRONTEND_TOOL: Record<string, string> = {
 // SSE stream parser
 // ---------------------------------------------------------------------------
 
+/**
+ * Cost/usage of one full AI response, computed on the backend (litellm).
+ * `amount` is in `currency` units; null means the price is unknown (e.g. local
+ * models with no override) and the UI shows "-". The frontend converts `amount`
+ * to the user's chosen display currency.
+ */
+export interface CostInfo {
+  amount: number | null
+  currency: string
+  model: string
+  provider: string
+  source: 'auto' | 'manual' | 'unknown'
+  estimated: boolean
+}
+
 interface ParseSSEOptions {
   onText: (content: string, speaker?: string) => void
   onMessage?: (content: string, speaker?: string, round?: number) => void
@@ -257,6 +272,7 @@ interface ParseSSEOptions {
   onWarning?: (warnings: TruncationWarning[]) => void
   onNewBlock?: (speaker?: string) => void
   onOverseerDecision?: (decision: string) => void
+  onCost?: (cost: CostInfo) => void
   abortSignal?: AbortSignal
 }
 
@@ -392,6 +408,10 @@ async function parseSSEStream(response: Response, options: ParseSSEOptions): Pro
                   inThinkingBlock = false
                   options.onText(fullContent, data.speaker)
                 }
+                // Cost of the full response (attaches to the last bubble)
+                if (data.cost && options.onCost) {
+                  options.onCost(data.cost)
+                }
                 break
             }
           } catch (parseError) {
@@ -511,6 +531,7 @@ export async function streamChatFromBackend(options: ProviderOptions, language?:
       onError: error => {
         options.errorIssue.value = error
       },
+      onCost: options.onCost,
       abortSignal: options.abortSignal,
     })
   } catch (error: any) {
@@ -646,6 +667,7 @@ export async function streamAgentFromBackend(options: AgentOptions, language?: s
             options.errorIssue.value = error
           }
         },
+        onCost: options.onCost,
         abortSignal: options.abortSignal,
       })
 
@@ -985,6 +1007,7 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
             options.errorIssue.value = error
           }
         },
+        onCost: options.onCost,
         abortSignal: options.abortSignal,
       })
 
@@ -1044,6 +1067,7 @@ export interface SerializedMessage {
   metadata?: BotMetadata
   toolName?: string
   attachments?: { filename: string }[]
+  cost?: CostInfo // Response cost, shown on the last bubble; persisted across reloads
 }
 
 export interface BackendThread {

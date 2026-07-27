@@ -15,6 +15,8 @@ export const localStorageKey = {
   attachmentCharLimit: 'attachmentCharLimit',
   llmTimeout: 'llmTimeout',
   tavilyApiKey: 'tavilyApiKey',
+  costDisplayCurrency: 'costDisplayCurrency',
+  costCurrencyRate: 'costCurrencyRate',
   threadId: 'threadId',
   // openai api
   openaiReasoningEffort: 'openaiReasoningEffort',

@@ -288,7 +288,7 @@
                   />
                 </template>
               </div>
-              <div v-if="entry.msg instanceof AIMessage" class="flex gap-1">
+              <div v-if="entry.msg instanceof AIMessage" class="flex w-full max-w-[95%] items-center gap-1">
                 <CustomButton
                   :title="t('replaceSelectedText')"
                   text=""
@@ -316,6 +316,14 @@
                   :icon-size="12"
                   @click="copyToClipboard(cleanMessageText(entry.msg))"
                 />
+                <!-- API cost of the full response (bottom-right, shown on the last bubble only) -->
+                <span
+                  v-if="getMessageCost(entry.displayIndex)"
+                  class="ml-auto text-[11px] leading-none text-secondary/70"
+                  :title="getMessageCost(entry.displayIndex)!.model + (getMessageCost(entry.displayIndex)!.estimated ? ' (estimated)' : '')"
+                >
+                  {{ formatCost(getMessageCost(entry.displayIndex)!) }}
+                </span>
               </div>
             </div>
           </div>
@@ -551,6 +559,7 @@ import { useRouter } from 'vue-router'
 
 import {
   type BackendThread,
+  type CostInfo,
   editConversationMessage,
   fetchContextStats,
   fetchThread,
@@ -742,6 +751,7 @@ const mode = useStorage(localStorageKey.chatMode, 'ask' as 'ask' | 'agent' | 'mu
 const history = ref<Message[]>([])
 const messageMetadata = new Map<number, BotMetadata>() // Bot metadata for multiagent display
 const messageAttachmentsMap = new Map<number, { filename: string; data?: string }[]>() // Attachment info per message (data present in-memory, absent after reload)
+const messageCostMap = ref<Record<number, CostInfo>>({}) // API cost per response, keyed by last-bubble index
 const currentBotMessageIndex = ref<number | null>(null) // Track current bot message being streamed
 const userInput = ref('')
 const loading = ref(false)
@@ -1139,6 +1149,7 @@ async function startNewChat() {
   history.value = []
   messageMetadata.clear()
   messageAttachmentsMap.clear()
+  messageCostMap.value = {}
   currentBotMessageIndex.value = null
   agentResponseMessageIndex.value = null
   threadId.value = uuidv4()
@@ -1576,6 +1587,10 @@ async function processChat(
         currentBotMessageIndex.value = null
         scrollToBottom()
       },
+      onCost: (cost: CostInfo) => {
+        const idx = currentBotMessageIndex.value ?? history.value.length - 1
+        messageCostMap.value[idx] = cost
+      },
     })
     if (
       multiAgentMode.value === 'collaborative' &&
@@ -1631,6 +1646,10 @@ async function processChat(
         onNewBlock: () => {
           agentResponseMessageIndex.value = null
         },
+        onCost: (cost: CostInfo) => {
+          const idx = agentResponseMessageIndex.value ?? history.value.length - 1
+          messageCostMap.value[idx] = cost
+        },
       },
       languageParam,
     )
@@ -1666,6 +1685,9 @@ async function processChat(
           history.value[lastIndex] = new AIMessage(text)
           liveCharsDelta.value = userMsgLength + text.length
           scrollToBottom()
+        },
+        onCost: (cost: CostInfo) => {
+          messageCostMap.value[history.value.length - 1] = cost
         },
       },
       languageParam,
@@ -1737,6 +1759,9 @@ function truncateHistoryAndMaps(fromIndex: number) {
   }
   for (const key of [...messageAttachmentsMap.keys()]) {
     if (key >= fromIndex) messageAttachmentsMap.delete(key)
+  }
+  for (const key of Object.keys(messageCostMap.value)) {
+    if (Number(key) >= fromIndex) delete messageCostMap.value[Number(key)]
   }
 }
 
@@ -1817,9 +1842,11 @@ async function forkFromMessage(index: number) {
   const forkedHistory = history.value.slice(0, index)
   const forkedMetadata = new Map<number, BotMetadata>()
   const forkedAttachments = new Map<number, { filename: string; data?: string }[]>()
+  const forkedCosts: Record<number, CostInfo> = {}
   for (let i = 0; i < index; i++) {
     if (messageMetadata.has(i)) forkedMetadata.set(i, messageMetadata.get(i)!)
     if (messageAttachmentsMap.has(i)) forkedAttachments.set(i, messageAttachmentsMap.get(i)!)
+    if (messageCostMap.value[i]) forkedCosts[i] = messageCostMap.value[i]
   }
 
   history.value = forkedHistory
@@ -1827,6 +1854,7 @@ async function forkFromMessage(index: number) {
   messageAttachmentsMap.clear()
   forkedMetadata.forEach((v, k) => messageMetadata.set(k, v))
   forkedAttachments.forEach((v, k) => messageAttachmentsMap.set(k, v))
+  messageCostMap.value = forkedCosts
   threadId.value = newThreadId
   incompleteResponse.value = false
 
@@ -2038,6 +2066,26 @@ const getBotMetadata = (index: number): BotMetadata | undefined => {
   return messageMetadata.get(index)
 }
 
+// API cost shown on the last bubble of a response.
+const getMessageCost = (index: number): CostInfo | undefined => messageCostMap.value[index]
+
+/**
+ * Format a response cost for display. Backend amounts are USD; convert to the
+ * user's chosen currency (USD or EUR) via the conversion coefficient. Unknown
+ * price (amount === null) renders "-"; estimated counts are prefixed with "≈".
+ */
+const formatCost = (cost: CostInfo): string => {
+  const displayCurrency = (settingForm.value.costDisplayCurrency as string) || 'USD'
+  const symbol = displayCurrency === 'EUR' ? '€' : '$'
+  if (cost.amount === null || cost.amount === undefined) return '-'
+  const rate = Number(settingForm.value.costCurrencyRate) || 1
+  // Normalize the native amount to USD, then to the display currency.
+  const usd = cost.currency === 'EUR' ? cost.amount / rate : cost.amount
+  const shown = displayCurrency === 'EUR' ? usd * rate : usd
+  const digits = shown > 0 && shown < 0.01 ? 4 : 2
+  return `${cost.estimated ? '≈ ' : ''}${shown.toFixed(digits)}${symbol}`
+}
+
 const shouldShowBotHeader = (index: number): boolean => {
   const meta = getBotMetadata(index)
   if (!meta || meta.isDecisionOnly) return false
@@ -2192,6 +2240,7 @@ async function saveConversationToThread() {
           timestamp: Date.now(),
           metadata: messageMetadata.get(i),
           attachments,
+          cost: messageCostMap.value[i],
         })
       }
     }
@@ -2229,6 +2278,7 @@ async function loadThreadHistory(targetThreadId: string) {
       history.value = []
       messageMetadata.clear()
       messageAttachmentsMap.clear()
+      messageCostMap.value = {}
       currentCheckpointId.value = ''
       contextStats.value = { chars: 0, tokens: 0 }
       liveCharsDelta.value = 0
@@ -2249,12 +2299,16 @@ async function loadThreadHistory(targetThreadId: string) {
 
     messageMetadata.clear()
     messageAttachmentsMap.clear()
+    messageCostMap.value = {}
     thread.messages.forEach((msg: any, index: number) => {
       if (msg.metadata) {
         messageMetadata.set(index, msg.metadata)
       }
       if (msg.attachments?.length) {
         messageAttachmentsMap.set(index, msg.attachments)
+      }
+      if (msg.cost) {
+        messageCostMap.value[index] = msg.cost
       }
     })
 

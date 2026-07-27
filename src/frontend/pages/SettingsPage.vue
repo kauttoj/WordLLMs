@@ -103,6 +103,27 @@
               />
             </SettingCard>
             <SettingCard>
+              <SingleSelect
+                v-model="settingForm.costDisplayCurrency"
+                :tight="false"
+                :key-list="['USD', 'EUR']"
+                :title="$t('costDisplayCurrencyLabel')"
+                :fronticon="false"
+                :placeholder="settingForm.costDisplayCurrency"
+              />
+              <div class="mt-1 text-xs text-secondary/70">{{ $t('costDisplayCurrencyPlaceholder') }}</div>
+            </SettingCard>
+            <SettingCard>
+              <CustomInput
+                v-model.number="settingForm.costCurrencyRate"
+                :title="$t('costCurrencyRateLabel')"
+                :placeholder="$t('costCurrencyRatePlaceholder')"
+                type="number"
+                :min="0"
+                :step="0.01"
+              />
+            </SettingCard>
+            <SettingCard>
               <CustomInput
                 v-model="profilePathInput"
                 :title="$t('profilePathLabel')"
