@@ -21,6 +21,7 @@ from .schemas import (
     MCPServerAddRequest, MCPServerUpdateRequest,
 )
 from .file_processing import format_attachments_for_message
+from .image_proxy import ImageProxyError, fetch_image
 from .providers import create_model
 from .tools import get_tools, CLIENT_TOOLS, SERVER_TOOLS, CLIENT_TOOL_CATEGORY
 from .agents import stream_chat, stream_agent, resume_agent
@@ -167,6 +168,28 @@ async def list_tools():
     tools.append({"name": "web_search", "kind": "server", "category": "server",
                   "description": "Search the web for current information."})
     return {"tools": tools}
+
+@app.get("/api/proxy/image")
+async def proxy_image(url: str):
+    """Fetch a remote image server-side for the `insert_image` Word tool.
+
+    The add-in cannot fetch most image URLs itself (CORS, hotlink protection),
+    and Word cannot decode every format the web serves. See image_proxy.py.
+    """
+    try:
+        image = await fetch_image(url)
+    except ImageProxyError as exc:
+        # A bad URL is the caller's problem, not a server fault — 400 keeps the
+        # message intact for the LLM instead of surfacing as a generic 500.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "base64": image.base64,
+        "contentType": image.content_type,
+        "sourceContentType": image.source_content_type,
+        "converted": image.converted,
+        "byteSize": image.byte_size,
+    }
 
 @app.get("/api/context-stats/{conversation_id}")
 async def context_stats(conversation_id: str):

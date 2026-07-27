@@ -10,7 +10,7 @@
  */
 
 import { message as messageUtil } from '@/utils/message'
-import { getWordTool } from '@/utils/wordTools'
+import { formatOfficeError, getWordTool } from '@/utils/wordTools'
 
 import { getBackendUrl, setBackendUrl } from './config'
 import { toBackendName, toFrontendName } from './toolNames'
@@ -586,8 +586,8 @@ export async function streamAgentFromBackend(options: AgentOptions, language?: s
           }
           toolResults.push({ call_id: tc.call_id, name: tc.name, result })
         } catch (err: any) {
-          const errMsg = `Error: ${err.message || 'Unknown error'}`
-          console.error('[Backend] Client tool error:', tc.name, err)
+          const errMsg = formatOfficeError(err)
+          console.error('[Backend] Client tool error:', tc.name, err, 'debugInfo:', err?.debugInfo)
           if (options.onToolResult) {
             options.onToolResult(tc.name, errMsg)
           }
@@ -860,8 +860,8 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
           }
           toolResults.push({ call_id: tc.call_id, name: tc.name, result })
         } catch (err: any) {
-          const errMsg = `Error: ${err.message || 'Unknown error'}`
-          console.error('[Backend] Client tool error:', tc.name, err)
+          const errMsg = formatOfficeError(err)
+          console.error('[Backend] Client tool error:', tc.name, err, 'debugInfo:', err?.debugInfo)
           if (options.onToolResult) {
             options.onToolResult(tc.name, errMsg)
           }

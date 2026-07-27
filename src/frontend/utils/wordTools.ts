@@ -1,3 +1,37 @@
+import { getBackendUrl } from '@/api/config'
+
+/**
+ * Render an Office.js failure into a message the LLM can actually act on.
+ *
+ * `OfficeExtension.Error.message` is frequently just "GeneralException", which
+ * tells the agent (and us) nothing. The useful detail lives in `debugInfo`:
+ * `code` names the failure class, `errorLocation` names the API that rejected,
+ * and `statement` / `surroundingStatements` pinpoint the failing call inside
+ * the batch. Office.js documents those two as never containing document data.
+ *
+ * `debugInfo.fullStatements` is deliberately NOT included: the typings warn it
+ * carries "any potentially-sensitive information that was specified in the
+ * request" — i.e. the user's document text — and this string is sent to the LLM.
+ */
+export function formatOfficeError(err: any): string {
+  if (!err) return 'Error: Unknown error'
+
+  const parts: string[] = [err.message || err.name || 'Unknown error']
+  const info = err.debugInfo
+
+  if (err.code && err.code !== err.message) parts.push(`code=${err.code}`)
+  if (info?.errorLocation) parts.push(`at ${info.errorLocation}`)
+  if (info?.message && info.message !== err.message) parts.push(`detail: ${info.message}`)
+  if (info?.statement) parts.push(`failing statement: ${info.statement}`)
+  if (info?.surroundingStatements?.length) {
+    parts.push(`context: ${info.surroundingStatements.join(' | ')}`)
+  }
+  if (typeof info?.innerError === 'string') parts.push(`inner: ${info.innerError}`)
+  else if (info?.innerError?.message) parts.push(`inner: ${info.innerError.message}`)
+
+  return `Error: ${parts.join(' — ')}`
+}
+
 /**
  * Sanitize text returned from Word's body.text / range.text.
  * Converts Word-specific control characters to standard equivalents so LLMs
@@ -76,6 +110,94 @@ function stripMarkdown(text: string): string {
   return cleaned
 }
 
+interface ProxiedImage {
+  base64: string
+  /** Content type actually handed to Word (always one Word can decode). */
+  contentType: string
+  /** Content type the origin server served, before any transcoding. */
+  sourceContentType: string
+  converted: boolean
+}
+
+/** Formats Word's inline-picture decoder handles. Mirrors WORD_NATIVE_TYPES in image_proxy.py. */
+const WORD_NATIVE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/tiff'])
+
+/** Fetch a remote image through the backend proxy. Throws with the backend's own message. */
+async function fetchImageViaProxy(imageUrl: string): Promise<ProxiedImage> {
+  const endpoint = `${getBackendUrl()}/api/proxy/image?url=${encodeURIComponent(imageUrl)}`
+  let res: Response
+  try {
+    res = await fetch(endpoint)
+  } catch (e) {
+    throw new Error(`backend image proxy unreachable at ${endpoint} (${(e as Error).message})`)
+  }
+  if (!res.ok) {
+    let detail = await res.text()
+    try {
+      detail = JSON.parse(detail).detail ?? detail
+    } catch {
+      // Not JSON — the raw body is the best detail available.
+    }
+    throw new Error(detail)
+  }
+  return res.json()
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve((reader.result as string).split(',')[1])
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read the image data'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+/**
+ * Resolve an image URL to base64 Word can decode, trying the browser first and
+ * the backend proxy second.
+ *
+ * Neither route alone is sufficient, and the two fail on disjoint sets of hosts:
+ *   - The browser fetch is blocked by CORS (most image hosts send no
+ *     `Access-Control-Allow-Origin`) and by hotlink protection.
+ *   - The backend fetch is blocked by hosts that refuse server-side clients on
+ *     principle — Wikimedia answers 403 with a link to its robot policy, while
+ *     serving the same file to a browser without complaint.
+ * Trying the browser first also keeps the common case off the server entirely.
+ *
+ * The proxy is used regardless when the browser gets a format Word cannot
+ * decode (WEBP, AVIF), since only the backend can transcode it to PNG.
+ */
+async function fetchImageAsBase64(imageUrl: string): Promise<ProxiedImage> {
+  let directError = ''
+  try {
+    const response = await fetch(imageUrl)
+    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`)
+    const blob = await response.blob()
+    const type = blob.type.split(';')[0].trim().toLowerCase()
+    if (WORD_NATIVE_IMAGE_TYPES.has(type)) {
+      return {
+        base64: await blobToBase64(blob),
+        contentType: type,
+        sourceContentType: type,
+        converted: false,
+      }
+    }
+    directError = `direct fetch returned ${type || 'an unknown type'}, which Word cannot decode`
+  } catch (e) {
+    directError = (e as Error).message
+  }
+
+  console.warn(`[WordTools] Direct image fetch fell back to the backend proxy: ${directError}`)
+  try {
+    return await fetchImageViaProxy(imageUrl)
+  } catch (e) {
+    throw new Error(
+      `Could not load image "${imageUrl}". Browser fetch: ${directError}. ` +
+        `Backend proxy: ${(e as Error).message}`,
+    )
+  }
+}
+
 /**
  * Normalize line endings, including literal two-character \n sequences that
  * LLMs sometimes emit instead of real newline characters.
@@ -88,30 +210,117 @@ function normalizeLineBreaks(text: string): string {
 }
 
 /**
- * Insert text into a Word range, splitting on \n to create proper paragraphs.
- * Returns the last inserted paragraph (for multi-line) so callers can
- * move the cursor to maintain correct ordering across tool calls.
+ * Insert text into a Word range, splitting on \n to create proper paragraphs,
+ * and return a collapsed range at the end of the inserted content so the caller
+ * can park the cursor there.
+ *
+ * Each extra line is chained off the paragraph before it. Anchoring them all to
+ * the original `range` instead — which an earlier version did — inserts every
+ * new paragraph immediately after that same fixed point, so the lines come out
+ * reversed and line 1 is left stranded at the far end of the run.
+ *
  * keepStyle=false (default): subsequent paragraphs reset to Normal to prevent
  * heading style bleeding. keepStyle=true: style inherits from first paragraph.
  */
-function insertTextSafe(
+async function insertTextSafe(
+  context: Word.RequestContext,
   range: Word.Range,
   text: string,
   location: Word.InsertLocation,
   keepStyle = false,
-): Word.Paragraph | null {
+): Promise<Word.Range> {
   const lines = normalizeLineBreaks(text).split('\n')
-  if (lines.length === 1) {
-    range.insertText(lines[0], location)
-    return null
-  }
-  range.insertText(lines[0], location)
-  let lastPara: Word.Paragraph | null = null
+  const firstRange = range.insertText(lines[0], location)
+
+  const created: Word.Paragraph[] = []
+  let previous: Word.Paragraph | null = null
   for (let i = 1; i < lines.length; i++) {
-    lastPara = range.insertParagraph(lines[i], 'After')
-    if (!keepStyle) lastPara.styleBuiltIn = 'Normal'
+    const para = previous
+      ? previous.insertParagraph(lines[i], 'After')
+      : firstRange.insertParagraph(lines[i], 'After')
+    if (!keepStyle) para.styleBuiltIn = 'Normal'
+    created.push(para)
+    previous = para
   }
-  return lastPara
+
+  // Line 1 either merged into an existing paragraph (cursor sitting inside
+  // text) or became a paragraph of its own (Word starts a new item when the
+  // cursor is at the end of a list item). Only the second case is ours to
+  // detach, and a paragraph whose entire text is the line we just wrote cannot
+  // be holding anything that existed before.
+  const firstParas = firstRange.paragraphs
+  firstParas.load('items/text,items/isListItem')
+  await context.sync()
+  const ownFirst: Word.Paragraph[] = []
+  const firstLine = lines[0].trim()
+  if (firstLine.length > 0) {
+    for (const p of firstParas.items) {
+      if (sanitizeWordText(p.text).trim() === firstLine) ownFirst.push(p)
+    }
+  }
+
+  await detachFromInheritedList(context, [...ownFirst, ...created])
+
+  const last = previous ?? ownFirst[ownFirst.length - 1]
+  return last ? last.getRange('End') : firstRange.getRange('End')
+}
+
+/**
+ * Resolve the paragraph a block-level insertion should hang off.
+ *
+ * Paragraphs, lists, tables, page breaks and pictures are block content: they
+ * cannot live inside another paragraph. Asking Word to put one "After" a range
+ * that covers only part of a paragraph makes it split that paragraph at the
+ * range end and wedge the block into the gap — select three words of a sentence
+ * and insert a paragraph, and the sentence is torn in two with the new content
+ * (and everything inserted after it) sitting in the middle.
+ *
+ * Anchoring to the containing paragraph instead is what the tool contracts
+ * promise: "after the cursor" means after the paragraph the cursor is in.
+ * Syncs once; the caller still owns the final sync.
+ */
+async function getBlockAnchor(
+  context: Word.RequestContext,
+  range: Word.Range,
+  location: string,
+): Promise<Word.Paragraph> {
+  const paragraphs = range.paragraphs
+  paragraphs.load('items')
+  await context.sync()
+  if (paragraphs.items.length === 0) {
+    throw new Error(
+      'Could not resolve the cursor to a paragraph in the document. ' +
+        'Click inside the document body and try again.',
+    )
+  }
+  return location === 'Before' || location === 'Start'
+    ? paragraphs.items[0]
+    : paragraphs.items[paragraphs.items.length - 1]
+}
+
+/**
+ * Word carries list membership onto a paragraph inserted adjacent to an existing
+ * list, so plain content added right after one silently becomes its next item and
+ * renumbers the list. The text and paragraph tools promise plain content, so undo
+ * that: drop the membership and the indentation the list left behind (a list
+ * level's indent IS the paragraph indent — see List.setLevelIndents).
+ *
+ * Syncs once to read `isListItem`; the caller still owns the final sync.
+ */
+async function detachFromInheritedList(
+  context: Word.RequestContext,
+  paragraphs: Word.Paragraph[],
+): Promise<void> {
+  if (paragraphs.length === 0) return
+  paragraphs.forEach(p => p.load('isListItem'))
+  await context.sync()
+  for (const p of paragraphs) {
+    if (p.isListItem) {
+      p.detachFromList()
+      p.leftIndent = 0
+      p.firstLineIndent = 0
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -129,7 +338,20 @@ const MIN_ANCHOR_LEN = 12
 
 interface ParsedDocument {
   cleanText: string
+  /**
+   * Segment breaks: every position where a `body.search()` string must not be
+   * allowed to span. This is the union of real paragraph breaks and the "soft"
+   * breaks left by tracked deletions and comment anchors — Word will not match
+   * a search string across either, so anchor resolution must treat them alike.
+   */
   boundaries: boolean[]
+  /**
+   * Paragraph and line breaks only. This is what the reader tools render as
+   * `\n`. Keeping it apart from `boundaries` is what stops a tracked deletion
+   * or a comment from being reported to the LLM as a paragraph split that does
+   * not exist in the document.
+   */
+  hardBreaks: boolean[]
 }
 
 interface AnchorResult {
@@ -161,14 +383,26 @@ function parseOoxml(ooxml: string): ParsedDocument {
 
   let cleanText = ''
   const boundaries: boolean[] = []
+  const hardBreaks: boolean[] = []
   let pendingBreak = false
+  let pendingHardBreak = false
   let inFieldInstruction = false
   let fieldDepth = 0
 
   function addChar(ch: string) {
     boundaries.push(pendingBreak && cleanText.length > 0)
+    hardBreaks.push(pendingHardBreak && cleanText.length > 0)
     pendingBreak = false
+    pendingHardBreak = false
     cleanText += ch
+  }
+
+  /** A real paragraph/line break: blocks search spanning AND renders as \n. */
+  function markHardBreak() {
+    if (cleanText.length > 0) {
+      pendingBreak = true
+      pendingHardBreak = true
+    }
   }
 
   function walk(el: Element) {
@@ -177,6 +411,10 @@ function parseOoxml(ooxml: string): ParsedDocument {
       const ln = (child as Element).localName
 
       if (ln === 'del' || ln === 'comment') {
+        // Soft break only. Word cannot match a search string across a tracked
+        // deletion or a comment anchor, so anchor resolution has to stop here —
+        // but the surrounding text is still one continuous paragraph, and
+        // rendering a \n here would report a paragraph split that isn't real.
         pendingBreak = true
         continue
       }
@@ -206,14 +444,14 @@ function parseOoxml(ooxml: string): ParsedDocument {
 
       // Paragraph boundary — mark break then recurse into runs
       if (ln === 'p') {
-        if (cleanText.length > 0) pendingBreak = true
+        markHardBreak()
         walk(child as Element)
         continue
       }
 
       // Explicit line break (Shift+Enter)
       if (ln === 'br') {
-        if (cleanText.length > 0) pendingBreak = true
+        markHardBreak()
         continue
       }
 
@@ -227,9 +465,9 @@ function parseOoxml(ooxml: string): ParsedDocument {
       // resolution never builds an expandTo() range that crosses cell walls
       // (Word rejects such ranges with GeneralException on insertText).
       if (ln === 'tbl' || ln === 'tr' || ln === 'tc') {
-        if (cleanText.length > 0) pendingBreak = true
+        markHardBreak()
         walk(child as Element)
-        if (cleanText.length > 0) pendingBreak = true
+        markHardBreak()
         continue
       }
 
@@ -238,25 +476,19 @@ function parseOoxml(ooxml: string): ParsedDocument {
   }
 
   walk(xmlDoc.documentElement)
-  return { cleanText, boundaries }
+  return { cleanText, boundaries, hardBreaks }
 }
 
-/** Convert cleanText + boundaries into display text with \n at paragraph boundaries. */
+/** Convert cleanText into display text with \n at real paragraph boundaries. */
 function toDisplayText(parsed: ParsedDocument): string {
-  const { cleanText, boundaries } = parsed
-  let result = ''
-  for (let i = 0; i < cleanText.length; i++) {
-    if (boundaries[i]) result += '\n'
-    result += cleanText[i]
-  }
-  return result
+  return sliceToDisplay(parsed.cleanText, parsed.hardBreaks, 0, parsed.cleanText.length)
 }
 
-/** Convert a cleanText slice [from, to) into display text with \n at boundaries. */
-function sliceToDisplay(cleanText: string, boundaries: boolean[], from: number, to: number): string {
+/** Convert a cleanText slice [from, to) into display text with \n at hard breaks. */
+function sliceToDisplay(cleanText: string, hardBreaks: boolean[], from: number, to: number): string {
   let result = ''
   for (let i = from; i < to && i < cleanText.length; i++) {
-    if (boundaries[i]) result += '\n'
+    if (hardBreaks[i]) result += '\n'
     result += cleanText[i]
   }
   return result
@@ -802,6 +1034,17 @@ export const wordToolExecutors = {
   getSelectedText: async () => {
     return Word.run(async context => {
       const sel = context.document.getSelection()
+      // Range.getOoxml() throws GeneralException on a collapsed (empty) selection
+      // instead of returning empty OOXML, so emptiness must be settled in its own
+      // sync round-trip before getOoxml() is ever queued into the batch.
+      sel.load('text')
+      await context.sync()
+      // An empty string is indistinguishable from a tool that produced no
+      // output, so say it in words the LLM can act on.
+      if ((sel.text ?? '').length === 0) {
+        return '(nothing is selected — the cursor is collapsed at a single point)'
+      }
+
       const ooxmlResult = sel.getOoxml()
       await context.sync()
       const parsed = parseOoxml(ooxmlResult.value)
@@ -821,12 +1064,10 @@ export const wordToolExecutors = {
     const text = stripMarkdown(rawText)
     return Word.run(async context => {
       const range = context.document.getSelection()
-      const lastPara = insertTextSafe(range, text, location as Word.InsertLocation, keepStyle)
+      const endOfInsert = await insertTextSafe(context, range, text, location as Word.InsertLocation, keepStyle)
       // Move cursor to end of inserted content so consecutive calls
       // insert in correct order instead of reversing
-      if (lastPara) {
-        lastPara.getRange('End').select()
-      }
+      endOfInsert.select()
       await context.sync()
       return `Successfully inserted text at ${location}`
     })
@@ -854,8 +1095,32 @@ export const wordToolExecutors = {
     const text = stripMarkdown(rawText)
     return Word.run(async context => {
       const body = context.document.body
-      const range = body.getRange('End')
-      insertTextSafe(range, text, 'End', keepStyle)
+      const paragraphs = body.paragraphs
+      paragraphs.load('items/text,items/isListItem')
+      await context.sync()
+
+      // "Append to the end of the document" has to start a new block.
+      // `body.getRange('End')` is a collapsed point *inside* the last
+      // paragraph, so writing there extends it instead — and when that
+      // paragraph is a list item, the appended text silently becomes one more
+      // item of the list ("EtaAPPENDED LINE ONE"). Only a trailing empty
+      // non-list paragraph is safe to write into directly; anything else gets
+      // a fresh paragraph of its own.
+      const last = paragraphs.items[paragraphs.items.length - 1]
+      let range: Word.Range
+      if (last && (last.isListItem || sanitizeWordText(last.text).trim().length > 0)) {
+        const carrier = last.insertParagraph('', 'After')
+        await detachFromInheritedList(context, [carrier])
+        range = carrier.getRange('End')
+      } else {
+        range = body.getRange('End')
+      }
+
+      const endOfInsert = await insertTextSafe(context, range, text, 'End', keepStyle)
+      // Leave the cursor at the end of what was appended. Anything inserted
+      // next then continues from there instead of jumping back to wherever the
+      // cursor happened to be before the append.
+      endOfInsert.select()
       await context.sync()
       return 'Successfully appended text to document'
     })
@@ -866,25 +1131,32 @@ export const wordToolExecutors = {
     const text = stripMarkdown(rawText)
     return Word.run(async context => {
       // Split on \n so each line becomes its own paragraph
-      const lines = text.replace(/\r\n|\r/g, '\n').split('\n')
+      const lines = normalizeLineBreaks(text).split('\n')
       let paragraph: Word.Paragraph
       if (location === 'Start' || location === 'End') {
         const body = context.document.body
         paragraph = body.insertParagraph(lines[0], location)
       } else {
-        const range = context.document.getSelection()
-        paragraph = range.insertParagraph(lines[0], location as 'After' | 'Before')
+        // Anchor to the whole paragraph the cursor sits in, never to the raw
+        // selection — see getBlockAnchor for why a partial range splits it.
+        const anchor = await getBlockAnchor(context, context.document.getSelection(), location)
+        paragraph = anchor.insertParagraph(lines[0], location as 'After' | 'Before')
       }
       if (style) {
         paragraph.styleBuiltIn = style as Word.BuiltInStyleName
       }
+      const inserted: Word.Paragraph[] = [paragraph]
       for (let i = 1; i < lines.length; i++) {
-        const nextPara = paragraph.getRange('After').insertParagraph(lines[i], 'After')
+        const nextPara = paragraph.insertParagraph(lines[i], 'After')
         if (style) {
           nextPara.styleBuiltIn = style as Word.BuiltInStyleName
         }
         paragraph = nextPara
+        inserted.push(nextPara)
       }
+
+      await detachFromInheritedList(context, inserted)
+
       // Move cursor to end of last inserted paragraph so consecutive calls
       // insert in correct top-to-bottom order instead of reversing
       paragraph.getRange('End').select()
@@ -1038,7 +1310,9 @@ export const wordToolExecutors = {
   insertTable: async (args: any) => {
       const { rows, columns, data } = args
       return Word.run(async context => {
-        const range = context.document.getSelection()
+        // A table is block content: anchoring it to a partial selection makes
+        // Word split the host paragraph around it. See getBlockAnchor.
+        const anchor = await getBlockAnchor(context, context.document.getSelection(), 'After')
 
         // Create table data
         const tableData: string[][] =
@@ -1047,10 +1321,14 @@ export const wordToolExecutors = {
             .fill(null)
             .map(() => Array(columns).fill(''))
 
-        const table = range.insertTable(rows, columns, 'After', tableData)
+        const table = anchor.insertTable(rows, columns, 'After', tableData)
         table.styleBuiltIn = 'GridTable1Light'
-        // Advance cursor past the table for correct ordering
-        table.getRange('End').select()
+        // Advance cursor past the table for correct ordering.
+        // Must be 'After', not 'End': for a table 'End' is the point *before* the
+        // end-of-table marker, i.e. still inside the last cell. Leaving the cursor
+        // there breaks any following operation Word forbids inside a table — most
+        // visibly insertPageBreak, which fails with GeneralException.
+        table.getRange('After').select()
 
         await context.sync()
         return `Successfully inserted ${rows}x${columns} table`
@@ -1059,9 +1337,36 @@ export const wordToolExecutors = {
 
   insertList: async (args: any) => {
     const { items, listType } = args
+      if (!Array.isArray(items) || items.length === 0) {
+        throw new Error('insertList: "items" must be a non-empty array of strings.')
+      }
       return Word.run(async context => {
-        const range = context.document.getSelection()
-        const firstParagraph = range.insertParagraph(items[0], 'After')
+        // A list is block content: anchoring it to a partial selection makes
+        // Word split the host paragraph around it. See getBlockAnchor.
+        const anchor = await getBlockAnchor(context, context.document.getSelection(), 'After')
+        const firstParagraph = anchor.insertParagraph(items[0], 'After')
+
+        // Word carries list membership onto a paragraph inserted adjacent to an
+        // existing list, and startNewList() throws GeneralException on a paragraph
+        // that is already a list item. Detaching first is what makes a list inserted
+        // directly after another list work — without it, the second list always
+        // fails and strands its first item as an orphan in the preceding list.
+        firstParagraph.load('isListItem')
+        await context.sync()
+        if (firstParagraph.isListItem) {
+          firstParagraph.detachFromList()
+          await context.sync()
+        }
+
+        // detachFromList() drops list membership but leaves behind the indentation
+        // the old list applied, and a list level's indent IS the paragraph indent
+        // (see setLevelIndents docs) — so the new list's indent stacks on top of the
+        // inherited one and every list inserted after another renders one level
+        // deeper, as a sub-list of its predecessor. Reset to a known baseline.
+        firstParagraph.leftIndent = 0
+        firstParagraph.firstLineIndent = 0
+        await context.sync()
+
         const list = firstParagraph.startNewList()
         list.load('$none')
         await context.sync()
@@ -1073,8 +1378,16 @@ export const wordToolExecutors = {
         if (listType === 'bullet') {
           list.setLevelBullet(0, Word.ListBullet.solid)
         } else {
-          list.setLevelNumbering(0, Word.ListNumbering.arabic)
+          // The format string is what Word renders per item; the level number (0)
+          // is substituted for the integer entry, giving "1." / "2." / "3.".
+          list.setLevelNumbering(0, Word.ListNumbering.arabic, [0, '.'])
         }
+
+        // Pin level 0 to Word's default top-level list geometry: 0.25" (18pt) text
+        // indent with a matching hanging indent, so the bullet/number sits at the
+        // margin. This is the list-level counterpart to the paragraph reset above —
+        // together they make the list's depth explicit instead of inherited.
+        list.setLevelIndents(0, 18, -18)
 
         // Advance cursor past the list for correct ordering
         const listParagraphs = list.paragraphs
@@ -1129,10 +1442,27 @@ export const wordToolExecutors = {
   insertPageBreak: async (args: any) => {
     const { location = 'After' } = args
       return Word.run(async context => {
-        const range = context.document.getSelection()
+        // A page break is block content — anchor it to the whole paragraph the
+        // cursor is in, never to a partial selection. See getBlockAnchor.
+        const host = await getBlockAnchor(context, context.document.getSelection(), location)
+
         // insertBreak only supports Before and After for page breaks
-        const insertLoc = location === 'Start' || location === 'Before' ? 'Before' : 'After'
-        range.insertBreak('Page', insertLoc)
+        if (location === 'Start' || location === 'Before') {
+          // The break lands before the cursor, so the cursor is already past it.
+          host.insertBreak('Page', 'Before')
+          await context.sync()
+          return `Successfully inserted page break ${location.toLowerCase()}`
+        }
+
+        // insertBreak returns void, so there is no handle on the break to move
+        // the cursor beyond it. Anchoring the break to a new paragraph gives
+        // one. Without this the cursor stays *before* the break and everything
+        // inserted afterwards is pushed in ahead of it, so the break slides down
+        // the document and ends up trailing at the very end.
+        const carrier = host.insertParagraph('', 'After')
+        await detachFromInheritedList(context, [carrier])
+        carrier.insertBreak('Page', 'Before')
+        carrier.getRange('Start').select()
         await context.sync()
         return `Successfully inserted page break ${location.toLowerCase()}`
       })
@@ -1141,14 +1471,24 @@ export const wordToolExecutors = {
   getRangeInfo: async () => {
     return Word.run(async context => {
       const range = context.document.getSelection()
-      const ooxmlResult = range.getOoxml()
-      range.load(['style', 'font/name', 'font/size', 'font/bold', 'font/italic', 'font/underline', 'font/color'])
+      range.load(['text', 'style', 'font/name', 'font/size', 'font/bold', 'font/italic', 'font/underline', 'font/color'])
       await context.sync()
-      const parsed = parseOoxml(ooxmlResult.value)
+
+      // getOoxml() throws GeneralException on a collapsed selection — only ask for
+      // it once we know there is something selected. Formatting is still reported
+      // either way, since it describes the cursor position when nothing is selected.
+      const hasSelection = (range.text ?? '').length > 0
+      let text = ''
+      if (hasSelection) {
+        const ooxmlResult = range.getOoxml()
+        await context.sync()
+        text = sanitizeWordText(toDisplayText(parseOoxml(ooxmlResult.value)))
+      }
 
       return JSON.stringify(
         {
-          text: sanitizeWordText(toDisplayText(parsed)),
+          hasSelection,
+          text,
           style: range.style,
           font: {
             name: range.font.name,
@@ -1181,32 +1521,43 @@ export const wordToolExecutors = {
   insertImage: async (args: any) => {
     const { imageUrl, width, height, location = 'After' } = args
 
-      let base64: string
-      if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
-        const response = await fetch(imageUrl)
-        if (!response.ok) throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`)
-        const blob = await response.blob()
-        base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onloadend = () => resolve((reader.result as string).split(',')[1])
-          reader.onerror = reject
-          reader.readAsDataURL(blob)
-        })
+    let base64: string
+    let note = ''
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+      const fetched = await fetchImageAsBase64(imageUrl)
+      base64 = fetched.base64
+      if (fetched.converted) note = ` (converted from ${fetched.sourceContentType} to PNG)`
+    } else {
+      // Already base64 — strip data URI prefix if present
+      base64 = imageUrl.includes(',') ? imageUrl.split(',')[1] : imageUrl
+    }
+
+    return Word.run(async context => {
+      let image: Word.InlinePicture
+      if (location === 'Before' || location === 'After') {
+        // Give the picture its own paragraph. Word only inserts inline
+        // pictures at Replace/Start/End of a range, so "before/after the
+        // cursor" has to mean a new paragraph next to the current one —
+        // otherwise the image is jammed into the middle of existing text.
+        const anchor = await getBlockAnchor(context, context.document.getSelection(), location)
+        const holder = anchor.insertParagraph('', location as 'Before' | 'After')
+        await detachFromInheritedList(context, [holder])
+        image = holder.insertInlinePictureFromBase64(base64, 'End')
+        holder.getRange('End').select()
       } else {
-        // Already base64 — strip data URI prefix if present
-        base64 = imageUrl.includes(',') ? imageUrl.split(',')[1] : imageUrl
+        const range = context.document.getSelection()
+        image = range.insertInlinePictureFromBase64(
+          base64,
+          location as Word.InsertLocation.replace | Word.InsertLocation.start | Word.InsertLocation.end,
+        )
       }
 
-      return Word.run(async context => {
-        const range = context.document.getSelection()
-        const image = range.insertInlinePictureFromBase64(base64, location as Word.InsertLocation)
+      if (width) image.width = width
+      if (height) image.height = height
 
-        if (width) image.width = width
-        if (height) image.height = height
-
-        await context.sync()
-        return `Successfully inserted image at ${location}`
-      })
+      await context.sync()
+      return `Successfully inserted image at ${location}${note}`
+    })
   },
 
   getTableInfo: async () => {
@@ -1245,6 +1596,14 @@ export const wordToolExecutors = {
     const { name } = args
     return Word.run(async context => {
       const range = context.document.getSelection()
+      range.load('text')
+      await context.sync()
+      if ((range.text ?? '').length === 0) {
+        throw new Error(
+          'insertBookmark: nothing is selected. A bookmark must wrap existing text — ' +
+            'select it first with findAndSelectText or selectBetweenText.',
+        )
+      }
 
       const bookmarkName = name.replace(/\s+/g, '_')
 
@@ -1253,6 +1612,11 @@ export const wordToolExecutors = {
       contentControl.title = bookmarkName
       contentControl.appearance = 'Tags'
 
+      // Park the cursor outside the control. A content control grows to swallow
+      // anything inserted while the cursor is inside it, so leaving it there
+      // makes the very next insert become part of the bookmark instead of
+      // following it.
+      contentControl.getRange('After').select()
       await context.sync()
       return `Successfully inserted bookmark: ${bookmarkName}`
     })
@@ -1263,21 +1627,26 @@ export const wordToolExecutors = {
     return Word.run(async context => {
       const bookmarkName = name.replace(/\s+/g, '_')
       const contentControls = context.document.contentControls
-      contentControls.load(['items'])
+      contentControls.load('items/tag,items/title')
       await context.sync()
 
       for (const cc of contentControls.items) {
-        cc.load(['tag', 'title'])
-        await context.sync()
-
         if (cc.tag === `bookmark_${bookmarkName}` || cc.title === bookmarkName) {
-          cc.select()
+          // Select the content, not the control itself: a whole-control
+          // selection includes the container, so replacing or formatting it
+          // would act on the bookmark rather than the text it marks.
+          cc.getRange('Content').select()
           await context.sync()
           return `Successfully navigated to bookmark: ${bookmarkName}`
         }
       }
 
-      return `Bookmark not found: ${bookmarkName}`
+      const known = contentControls.items
+        .filter(cc => cc.tag?.startsWith('bookmark_'))
+        .map(cc => cc.tag.slice('bookmark_'.length))
+      return known.length > 0
+        ? `Bookmark not found: ${bookmarkName}. Existing bookmarks: ${known.join(', ')}`
+        : `Bookmark not found: ${bookmarkName}. The document has no bookmarks.`
     })
   },
 
@@ -1285,11 +1654,45 @@ export const wordToolExecutors = {
     const { title, tag, appearance = 'BoundingBox' } = args
     return Word.run(async context => {
       const range = context.document.getSelection()
+      range.load('text')
+      await context.sync()
+      if ((range.text ?? '').length === 0) {
+        throw new Error(
+          'insertContentControl: nothing is selected. A content control must wrap existing ' +
+            'content — select it first with findAndSelectText or selectBetweenText.',
+        )
+      }
+
+      const selectedText = sanitizeWordText(range.text).trim()
+
       const contentControl = range.insertContentControl()
       contentControl.title = title
       if (tag) contentControl.tag = tag
       contentControl.appearance = appearance as Word.ContentControlAppearance
+      contentControl.load('text')
+      await context.sync()
 
+      // Word does not always wrap the range it was given — notably when the
+      // selection already sits inside another content control. It then leaves
+      // an *empty* control behind, which shows up in the document as the
+      // "Click or tap here to enter text." placeholder. Reporting success for
+      // that would hide real document corruption, so check what was captured.
+      if (sanitizeWordText(contentControl.text ?? '').trim().length === 0 && selectedText.length > 0) {
+        // Remove the stray control rather than leaving the placeholder behind
+        // as document content the next reader would mistake for real text.
+        contentControl.delete(false)
+        await context.sync()
+        throw new Error(
+          `insertContentControl: Word created an empty content control instead of wrapping ` +
+            `"${selectedText.slice(0, 60)}", so it was removed again. This happens when the ` +
+            `selection is already inside another content control or bookmark — Word cannot nest ` +
+            `them here. Select text that is not already bookmarked and try again.`,
+        )
+      }
+
+      // See insertBookmark: a content control absorbs anything inserted while
+      // the cursor is inside it, so move the cursor past it.
+      contentControl.getRange('After').select()
       await context.sync()
       return `Successfully inserted content control: ${title}`
     })
@@ -1300,7 +1703,7 @@ export const wordToolExecutors = {
       const searchText = prepareSearchText(rawSearch)
       return Word.run(async context => {
         const { parsed } = await getDocumentParsed(context)
-        const { cleanText, boundaries } = parsed
+        const { cleanText, boundaries, hardBreaks } = parsed
         const CTX = 30
         const target = matchCase ? searchText : searchText.toLowerCase()
         const haystack = matchCase ? cleanText : cleanText.toLowerCase()
@@ -1320,8 +1723,8 @@ export const wordToolExecutors = {
           }
           matches.push({
             index: idx,
-            contextBefore: sliceToDisplay(cleanText, boundaries, Math.max(0, idx - CTX), idx),
-            contextAfter: sliceToDisplay(cleanText, boundaries, end + 1, Math.min(cleanText.length, end + 1 + CTX)),
+            contextBefore: sliceToDisplay(cleanText, hardBreaks, Math.max(0, idx - CTX), idx),
+            contextAfter: sliceToDisplay(cleanText, hardBreaks, end + 1, Math.min(cleanText.length, end + 1 + CTX)),
             hasBoundaries,
           })
           pos = idx + 1
@@ -1566,6 +1969,11 @@ export function getWordTool(name: string) {
 export async function getCleanSelectedText(): Promise<string> {
   return Word.run(async context => {
     const sel = context.document.getSelection()
+    // See getSelectedText: getOoxml() throws on a collapsed selection.
+    sel.load('text')
+    await context.sync()
+    if ((sel.text ?? '').length === 0) return ''
+
     const ooxmlResult = sel.getOoxml()
     await context.sync()
     return sanitizeWordText(toDisplayText(parseOoxml(ooxmlResult.value)))
