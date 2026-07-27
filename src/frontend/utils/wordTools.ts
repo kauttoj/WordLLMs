@@ -1,6 +1,3 @@
-import { tool } from '@langchain/core/tools'
-import { z } from 'zod'
-
 /**
  * Sanitize text returned from Word's body.text / range.text.
  * Converts Word-specific control characters to standard equivalents so LLMs
@@ -801,436 +798,162 @@ async function resolveAllOccurrencesCaseAware(
   return allRanges.map(r => r.range)
 }
 
-export type WordToolName =
-  | 'getSelectedText'
-  | 'getDocumentContent'
-  | 'insertText'
-  | 'replaceSelectedText'
-  | 'appendText'
-  | 'insertParagraph'
-  | 'formatText'
-  | 'searchAndReplace'
-  | 'searchAndReplaceInSelection'
-  | 'getDocumentProperties'
-  | 'insertTable'
-  | 'insertList'
-  | 'deleteText'
-  | 'clearFormatting'
-  | 'insertPageBreak'
-  | 'getRangeInfo'
-  | 'selectText'
-  | 'insertImage'
-  | 'getTableInfo'
-  | 'insertBookmark'
-  | 'goToBookmark'
-  | 'insertContentControl'
-  | 'findText'
-  | 'findAndSelectText'
-  | 'selectBetweenText'
-  | 'setParagraphFormat'
-  | 'setStyle'
-  | 'insertComment'
-
-/** Word tools that only read document content without modifying it. */
-export const READ_ONLY_WORD_TOOLS: WordToolName[] = [
-  'getSelectedText',
-  'getDocumentContent',
-  'getDocumentProperties',
-  'getRangeInfo',
-  'getTableInfo',
-  'findText',
-  'selectText',
-  'findAndSelectText',
-  'selectBetweenText',
-  'goToBookmark',
-]
-
-const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
-  getSelectedText: {
-    name: 'getSelectedText',
-    description:
-      'Get the currently selected text in the Word document. Paragraph breaks appear as newlines. Returns the selected text or empty string if nothing is selected.',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-      required: [],
-    },
-    execute: async () => {
-      return Word.run(async context => {
-        const sel = context.document.getSelection()
-        const ooxmlResult = sel.getOoxml()
-        await context.sync()
-        const parsed = parseOoxml(ooxmlResult.value)
-        return sanitizeWordText(toDisplayText(parsed))
-      })
-    },
+export const wordToolExecutors = {
+  getSelectedText: async () => {
+    return Word.run(async context => {
+      const sel = context.document.getSelection()
+      const ooxmlResult = sel.getOoxml()
+      await context.sync()
+      const parsed = parseOoxml(ooxmlResult.value)
+      return sanitizeWordText(toDisplayText(parsed))
+    })
   },
 
-  getDocumentContent: {
-    name: 'getDocumentContent',
-    description: 'Get the full content of the Word document body as plain text. Paragraph breaks appear as newlines.',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-      required: [],
-    },
-    execute: async () => {
-      return Word.run(async context => {
-        const { parsed } = await getDocumentParsed(context)
-        return sanitizeWordText(toDisplayText(parsed))
-      })
-    },
+  getDocumentContent: async () => {
+    return Word.run(async context => {
+      const { parsed } = await getDocumentParsed(context)
+      return sanitizeWordText(toDisplayText(parsed))
+    })
   },
 
-  insertText: {
-    name: 'insertText',
-    description:
-      'Insert plain text at the current cursor position. Do not use markdown. Use \\n for paragraph breaks. The cursor advances after each insertion.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        text: {
-          type: 'string',
-          description: 'The text to insert. Use \\n for paragraph breaks.',
-        },
-        location: {
-          type: 'string',
-          description: 'Where to insert relative to cursor: "Start", "End", "Before", "After", or "Replace"',
-          enum: ['Start', 'End', 'Before', 'After', 'Replace'],
-        },
-        keepStyle: {
-          type: 'boolean',
-          description:
-            'If true, paragraphs after \\n inherit the style of the first paragraph instead of resetting to Normal. Use when inserting multiple lines that should share a style (e.g., two Heading2s).',
-        },
-      },
-      required: ['text'],
-    },
-    execute: async args => {
-      const { text: rawText, location = 'End', keepStyle = false } = args
-      const text = stripMarkdown(rawText)
-      return Word.run(async context => {
-        const range = context.document.getSelection()
-        const lastPara = insertTextSafe(range, text, location as Word.InsertLocation, keepStyle)
-        // Move cursor to end of inserted content so consecutive calls
-        // insert in correct order instead of reversing
-        if (lastPara) {
-          lastPara.getRange('End').select()
-        }
-        await context.sync()
-        return `Successfully inserted text at ${location}`
-      })
-    },
+  insertText: async (args: any) => {
+    const { text: rawText, location = 'End', keepStyle = false } = args
+    const text = stripMarkdown(rawText)
+    return Word.run(async context => {
+      const range = context.document.getSelection()
+      const lastPara = insertTextSafe(range, text, location as Word.InsertLocation, keepStyle)
+      // Move cursor to end of inserted content so consecutive calls
+      // insert in correct order instead of reversing
+      if (lastPara) {
+        lastPara.getRange('End').select()
+      }
+      await context.sync()
+      return `Successfully inserted text at ${location}`
+    })
   },
 
-  replaceSelectedText: {
-    name: 'replaceSelectedText',
-    description:
-      'Replace the entire selection with new content. For small targeted edits, use searchAndReplace instead. Do not use markdown. Use \\n for paragraph breaks.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        newText: {
-          type: 'string',
-          description: 'The replacement text. Use \\n for paragraph breaks.',
-        },
-        keepStyle: {
-          type: 'boolean',
-          description:
-            'If true, paragraphs after \\n inherit the style of the first paragraph instead of resetting to Normal.',
-        },
-      },
-      required: ['newText'],
-    },
-    execute: async args => {
-      const { newText: rawNewText, keepStyle = false } = args
-      const newText = stripMarkdown(rawNewText)
-      return Word.run(async context => {
-        const selection = context.document.getSelection()
-        selection.load('text')
-        await context.sync()
+  replaceSelectedText: async (args: any) => {
+    const { newText: rawNewText, keepStyle = false } = args
+    const newText = stripMarkdown(rawNewText)
+    return Word.run(async context => {
+      const selection = context.document.getSelection()
+      selection.load('text')
+      await context.sync()
 
-        if (!selection.text || selection.text.length === 0) {
-          throw new Error('Nothing is selected.')
-        }
+      if (!selection.text || selection.text.length === 0) {
+        throw new Error('Nothing is selected.')
+      }
 
-        await trackedReplace(context, selection, newText, keepStyle)
-        return 'Successfully replaced selected text'
-      })
-    },
+      await trackedReplace(context, selection, newText, keepStyle)
+      return 'Successfully replaced selected text'
+    })
   },
 
-  appendText: {
-    name: 'appendText',
-    description:
-      'Append plain text to the end of the document. Do not use markdown. Use \\n for paragraph breaks.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        text: {
-          type: 'string',
-          description: 'The text to append. Use \\n for paragraph breaks.',
-        },
-        keepStyle: {
-          type: 'boolean',
-          description:
-            'If true, paragraphs after \\n inherit the style of the first paragraph instead of resetting to Normal.',
-        },
-      },
-      required: ['text'],
-    },
-    execute: async args => {
-      const { text: rawText, keepStyle = false } = args
-      const text = stripMarkdown(rawText)
-      return Word.run(async context => {
+  appendText: async (args: any) => {
+    const { text: rawText, keepStyle = false } = args
+    const text = stripMarkdown(rawText)
+    return Word.run(async context => {
+      const body = context.document.body
+      const range = body.getRange('End')
+      insertTextSafe(range, text, 'End', keepStyle)
+      await context.sync()
+      return 'Successfully appended text to document'
+    })
+  },
+
+  insertParagraph: async (args: any) => {
+    const { text: rawText, location = 'After', style } = args
+    const text = stripMarkdown(rawText)
+    return Word.run(async context => {
+      // Split on \n so each line becomes its own paragraph
+      const lines = text.replace(/\r\n|\r/g, '\n').split('\n')
+      let paragraph: Word.Paragraph
+      if (location === 'Start' || location === 'End') {
         const body = context.document.body
-        const range = body.getRange('End')
-        insertTextSafe(range, text, 'End', keepStyle)
-        await context.sync()
-        return 'Successfully appended text to document'
-      })
-    },
-  },
-
-  insertParagraph: {
-    name: 'insertParagraph',
-    description:
-      'Insert a new paragraph. Use the style parameter for headings, quotes, etc. Do not use markdown. The cursor advances after insertion, so consecutive calls produce correct top-to-bottom order.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        text: {
-          type: 'string',
-          description: 'The paragraph text.',
-        },
-        location: {
-          type: 'string',
-          description:
-            '"After" (default, after cursor), "Before", "Start" (start of doc), or "End" (end of doc).',
-          enum: ['After', 'Before', 'Start', 'End'],
-        },
-        style: {
-          type: 'string',
-          description: 'Optional Word built-in style: Normal, Heading1, Heading2, Heading3, Quote, etc.',
-          enum: [
-            'Normal',
-            'Heading1',
-            'Heading2',
-            'Heading3',
-            'Heading4',
-            'Quote',
-            'IntenseQuote',
-            'Title',
-            'Subtitle',
-          ],
-        },
-      },
-      required: ['text'],
-    },
-    execute: async args => {
-      const { text: rawText, location = 'After', style } = args
-      const text = stripMarkdown(rawText)
-      return Word.run(async context => {
-        // Split on \n so each line becomes its own paragraph
-        const lines = text.replace(/\r\n|\r/g, '\n').split('\n')
-        let paragraph: Word.Paragraph
-        if (location === 'Start' || location === 'End') {
-          const body = context.document.body
-          paragraph = body.insertParagraph(lines[0], location)
-        } else {
-          const range = context.document.getSelection()
-          paragraph = range.insertParagraph(lines[0], location as 'After' | 'Before')
-        }
-        if (style) {
-          paragraph.styleBuiltIn = style as Word.BuiltInStyleName
-        }
-        for (let i = 1; i < lines.length; i++) {
-          const nextPara = paragraph.getRange('After').insertParagraph(lines[i], 'After')
-          if (style) {
-            nextPara.styleBuiltIn = style as Word.BuiltInStyleName
-          }
-          paragraph = nextPara
-        }
-        // Move cursor to end of last inserted paragraph so consecutive calls
-        // insert in correct top-to-bottom order instead of reversing
-        paragraph.getRange('End').select()
-        await context.sync()
-        return `Successfully inserted paragraph at ${location}`
-      })
-    },
-  },
-
-  formatText: {
-    name: 'formatText',
-    description: 'Apply formatting to the currently selected text.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        bold: {
-          type: 'boolean',
-          description: 'Make text bold',
-        },
-        italic: {
-          type: 'boolean',
-          description: 'Make text italic',
-        },
-        underline: {
-          type: 'string',
-          description: 'Underline style',
-          enum: ['None', 'Single', 'Double', 'Dotted', 'Thick', 'Wave'],
-        },
-        fontSize: {
-          type: 'number',
-          description: 'Font size in points',
-        },
-        fontName: {
-          type: 'string',
-          description: 'Font family name (e.g., "Arial", "Times New Roman", "Calibri", "Consolas")',
-        },
-        fontColor: {
-          type: 'string',
-          description: 'Font color as hex (e.g., "#FF0000" for red)',
-        },
-        highlightColor: {
-          type: 'string',
-          description: 'Highlight color',
-          enum: [
-            'Yellow',
-            'Green',
-            'Cyan',
-            'Pink',
-            'Blue',
-            'Red',
-            'DarkBlue',
-            'Teal',
-            'Lime',
-            'Purple',
-            'Orange',
-            'White',
-            'Black',
-          ],
-        },
-      },
-      required: [],
-    },
-    execute: async args => {
-      const { bold, italic, underline, fontSize, fontName, fontColor, highlightColor } = args
-      return Word.run(async context => {
+        paragraph = body.insertParagraph(lines[0], location)
+      } else {
         const range = context.document.getSelection()
-
-        if (bold !== undefined) range.font.bold = bold
-        if (italic !== undefined) range.font.italic = italic
-        if (underline !== undefined) range.font.underline = underline
-        if (fontSize !== undefined) range.font.size = fontSize
-        if (fontName !== undefined) range.font.name = fontName
-        if (fontColor !== undefined) range.font.color = fontColor
-        if (highlightColor !== undefined) range.font.highlightColor = highlightColor
-
-        await context.sync()
-        return 'Successfully applied formatting'
-      })
-    },
+        paragraph = range.insertParagraph(lines[0], location as 'After' | 'Before')
+      }
+      if (style) {
+        paragraph.styleBuiltIn = style as Word.BuiltInStyleName
+      }
+      for (let i = 1; i < lines.length; i++) {
+        const nextPara = paragraph.getRange('After').insertParagraph(lines[i], 'After')
+        if (style) {
+          nextPara.styleBuiltIn = style as Word.BuiltInStyleName
+        }
+        paragraph = nextPara
+      }
+      // Move cursor to end of last inserted paragraph so consecutive calls
+      // insert in correct top-to-bottom order instead of reversing
+      paragraph.getRange('End').select()
+      await context.sync()
+      return `Successfully inserted paragraph at ${location}`
+    })
   },
 
-  searchAndReplace: {
-    name: 'searchAndReplace',
-    description:
-      'Search for text in the document and replace it. Preferred for targeted edits: typos, grammar, proofreading.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        searchText: {
-          type: 'string',
-          description:
-            'The visible text to search for. Newlines are stripped automatically; search works across paragraphs. Must not contain tabs, non-breaking spaces (U+00A0), soft hyphens (U+00AD), or control/zero-width characters — these appear in table cells and formatted regions but Word cannot search for them. If a long string fails, try a shorter unique substring.',
-        },
-        replaceText: {
-          type: 'string',
-          description: 'The text to replace with',
-        },
-        matchCase: {
-          type: 'boolean',
-          description: 'Whether to match case (default: false)',
-        },
-        keepStyle: {
-          type: 'boolean',
-          description:
-            'If true, paragraphs after \\n in the replacement text inherit the style of the first paragraph instead of resetting to Normal.',
-        },
-      },
-      required: ['searchText', 'replaceText'],
-    },
-    execute: async args => {
-      const { searchText: rawSearch, replaceText: rawReplace, matchCase = false, keepStyle = false } = args
-      const searchText = prepareSearchText(rawSearch)
-      const replaceText = stripMarkdown(rawReplace)
-      return Word.run(async context => {
-        const { body, parsed } = await getDocumentParsed(context)
-        const cleanPositions = matchCase
-          ? countOccurrences(parsed.cleanText, searchText)
-          : countOccurrences(parsed.cleanText.toLowerCase(), searchText.toLowerCase())
-        const ranges = await resolveAllOccurrencesCaseAware(context, body, parsed, searchText, matchCase)
+  formatText: async (args: any) => {
+    const { bold, italic, underline, fontSize, fontName, fontColor, highlightColor } = args
+    return Word.run(async context => {
+      const range = context.document.getSelection()
 
-        if (ranges.length === 0) {
-          if (cleanPositions === 0) {
-            return `No occurrences of "${searchText}" found in document`
-          }
-          throw new Error(
-            `Found ${cleanPositions} match(es) in document text but Word could not resolve ` +
-            `any to a replaceable range. Try a more specific or shorter phrase, or use ` +
-            `find_and_select_text + replace_selected_text for content inside table cells.`,
-          )
-        }
+      if (bold !== undefined) range.font.bold = bold
+      if (italic !== undefined) range.font.italic = italic
+      if (underline !== undefined) range.font.underline = underline
+      if (fontSize !== undefined) range.font.size = fontSize
+      if (fontName !== undefined) range.font.name = fontName
+      if (fontColor !== undefined) range.font.color = fontColor
+      if (highlightColor !== undefined) range.font.highlightColor = highlightColor
 
-        // Replace right-to-left to preserve earlier range positions
-        for (let i = ranges.length - 1; i >= 0; i--) {
-          await trackedReplace(context, ranges[i], replaceText, keepStyle)
-        }
-
-        const unresolved = cleanPositions - ranges.length
-        const suffix =
-          unresolved > 0
-            ? ` (${unresolved} match(es) could not be resolved and were left unchanged — ` +
-              `try a shorter, more unique phrase)`
-            : ''
-        return `Replaced ${ranges.length} occurrence(s) of "${searchText}" with "${replaceText}"${suffix}`
-      })
-    },
+      await context.sync()
+      return 'Successfully applied formatting'
+    })
   },
 
-  searchAndReplaceInSelection: {
-    name: 'searchAndReplaceInSelection',
-    description: 'Search and replace within the current selection only.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        searchText: {
-          type: 'string',
-          description:
-            'The visible text to search for. Newlines are stripped automatically; search works across paragraphs.',
-        },
-        replaceText: {
-          type: 'string',
-          description: 'The text to replace with',
-        },
-        matchCase: {
-          type: 'boolean',
-          description: 'Whether to match case (default: false)',
-        },
-        keepStyle: {
-          type: 'boolean',
-          description:
-            'If true, paragraphs after \\n in the replacement text inherit the style of the first paragraph instead of resetting to Normal.',
-        },
-      },
-      required: ['searchText', 'replaceText'],
-    },
-    execute: async args => {
-      const { searchText: rawSearch, replaceText: rawReplace, matchCase = false, keepStyle = false } = args
-      const searchText = prepareSearchText(rawSearch)
-      const replaceText = stripMarkdown(rawReplace)
-      return Word.run(async context => {
-        const selection = context.document.getSelection()
+  searchAndReplace: async (args: any) => {
+    const { searchText: rawSearch, replaceText: rawReplace, matchCase = false, keepStyle = false } = args
+    const searchText = prepareSearchText(rawSearch)
+    const replaceText = stripMarkdown(rawReplace)
+    return Word.run(async context => {
+      const { body, parsed } = await getDocumentParsed(context)
+      const cleanPositions = matchCase
+        ? countOccurrences(parsed.cleanText, searchText)
+        : countOccurrences(parsed.cleanText.toLowerCase(), searchText.toLowerCase())
+      const ranges = await resolveAllOccurrencesCaseAware(context, body, parsed, searchText, matchCase)
+
+      if (ranges.length === 0) {
+        if (cleanPositions === 0) {
+          return `No occurrences of "${searchText}" found in document`
+        }
+        throw new Error(
+          `Found ${cleanPositions} match(es) in document text but Word could not resolve ` +
+          `any to a replaceable range. Try a more specific or shorter phrase, or use ` +
+          `find_and_select_text + replace_selected_text for content inside table cells.`,
+        )
+      }
+
+      // Replace right-to-left to preserve earlier range positions
+      for (let i = ranges.length - 1; i >= 0; i--) {
+        await trackedReplace(context, ranges[i], replaceText, keepStyle)
+      }
+
+      const unresolved = cleanPositions - ranges.length
+      const suffix =
+        unresolved > 0
+          ? ` (${unresolved} match(es) could not be resolved and were left unchanged — ` +
+            `try a shorter, more unique phrase)`
+          : ''
+      return `Replaced ${ranges.length} occurrence(s) of "${searchText}" with "${replaceText}"${suffix}`
+    })
+  },
+
+  searchAndReplaceInSelection: async (args: any) => {
+    const { searchText: rawSearch, replaceText: rawReplace, matchCase = false, keepStyle = false } = args
+    const searchText = prepareSearchText(rawSearch)
+    const replaceText = stripMarkdown(rawReplace)
+    return Word.run(async context => {
+      const selection = context.document.getSelection()
         selection.load('text')
         await context.sync()
 
@@ -1285,69 +1008,34 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
 
         return `Replaced ${inSelection.length} occurrence(s) of "${searchText}" in the selection with "${replaceText}"`
       })
-    },
   },
 
-  getDocumentProperties: {
-    name: 'getDocumentProperties',
-    description: 'Get document properties including paragraph count, word count, and character count.',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-      required: [],
-    },
-    execute: async () => {
-      return Word.run(async context => {
-        const { parsed } = await getDocumentParsed(context)
-        const displayText = toDisplayText(parsed)
+  getDocumentProperties: async () => {
+    return Word.run(async context => {
+      const { parsed } = await getDocumentParsed(context)
+      const displayText = toDisplayText(parsed)
 
-        const paragraphs = context.document.body.paragraphs
-        paragraphs.load('items')
-        await context.sync()
+      const paragraphs = context.document.body.paragraphs
+      paragraphs.load('items')
+      await context.sync()
 
-        const wordCount = displayText.split(/\s+/).filter(word => word.length > 0).length
-        const charCount = parsed.cleanText.length
-        const paragraphCount = paragraphs.items.length
+      const wordCount = displayText.split(/\s+/).filter(word => word.length > 0).length
+      const charCount = parsed.cleanText.length
+      const paragraphCount = paragraphs.items.length
 
-        return JSON.stringify(
-          {
-            paragraphCount,
-            wordCount,
-            characterCount: charCount,
-          },
-          null,
-          2,
-        )
-      })
-    },
+      return JSON.stringify(
+        {
+          paragraphCount,
+          wordCount,
+          characterCount: charCount,
+        },
+        null,
+        2,
+      )
+    })
   },
 
-  insertTable: {
-    name: 'insertTable',
-    description: 'Insert a table at the current cursor position.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        rows: {
-          type: 'number',
-          description: 'Number of rows',
-        },
-        columns: {
-          type: 'number',
-          description: 'Number of columns',
-        },
-        data: {
-          type: 'array',
-          description: 'Optional 2D array of cell values',
-          items: {
-            type: 'array',
-            items: { type: 'string' },
-          },
-        },
-      },
-      required: ['rows', 'columns'],
-    },
-    execute: async args => {
+  insertTable: async (args: any) => {
       const { rows, columns, data } = args
       return Word.run(async context => {
         const range = context.document.getSelection()
@@ -1367,30 +1055,10 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
         await context.sync()
         return `Successfully inserted ${rows}x${columns} table`
       })
-    },
   },
 
-  insertList: {
-    name: 'insertList',
-    description: 'Insert a bulleted or numbered list at the current position.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        items: {
-          type: 'array',
-          description: 'Array of list item texts',
-          items: { type: 'string' },
-        },
-        listType: {
-          type: 'string',
-          description: 'Type of list: "bullet" or "number"',
-          enum: ['bullet', 'number'],
-        },
-      },
-      required: ['items', 'listType'],
-    },
-    execute: async args => {
-      const { items, listType } = args
+  insertList: async (args: any) => {
+    const { items, listType } = args
       return Word.run(async context => {
         const range = context.document.getSelection()
         const firstParagraph = range.insertParagraph(items[0], 'After')
@@ -1419,84 +1087,47 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
         await context.sync()
         return `Successfully inserted ${listType} list with ${items.length} items`
       })
-    },
   },
 
-  deleteText: {
-    name: 'deleteText',
-    description:
-      'Delete the currently selected text or a specific range. If no text is selected, this will delete at the cursor position.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        direction: {
-          type: 'string',
-          description: 'Direction to delete if nothing selected: "Before" (backspace) or "After" (delete key)',
-          enum: ['Before', 'After'],
-        },
-      },
-      required: [],
-    },
-    execute: async args => {
-      const { direction = 'After' } = args
-      return Word.run(async context => {
-        const range = context.document.getSelection()
-        range.load('text')
-        await context.sync()
+  deleteText: async () => {
+    return Word.run(async context => {
+      const range = context.document.getSelection()
+      range.load('text')
+      await context.sync()
 
-        const deletedLen = (range.text ?? '').length
-        if (range.text && range.text.length > 0) {
-          range.delete()
-        } else {
-          if (direction === 'After') {
-            range.insertText('', 'After')
-          } else {
-            range.insertText('', 'Before')
-          }
-        }
-        await context.sync()
-        return deletedLen > 0 ? `Successfully deleted ${deletedLen} characters` : 'Successfully deleted text'
-      })
-    },
+      const len = (range.text ?? '').length
+      if (len === 0) {
+        throw new Error(
+          'deleteText: nothing is selected. Select text first with findAndSelectText or selectBetweenText.',
+        )
+      }
+      range.delete()
+      await context.sync()
+      return `Successfully deleted ${len} characters`
+    })
   },
 
-  clearFormatting: {
-    name: 'clearFormatting',
-    description: 'Clear all formatting from the selected text, returning it to default style.',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-      required: [],
-    },
-    execute: async () => {
-      return Word.run(async context => {
-        const range = context.document.getSelection()
-        range.font.bold = false
-        range.font.italic = false
-        range.font.underline = 'None'
-        range.styleBuiltIn = 'Normal'
-        await context.sync()
-        return 'Successfully cleared formatting'
-      })
-    },
+  clearFormatting: async () => {
+    return Word.run(async context => {
+      const range = context.document.getSelection()
+      range.styleBuiltIn = 'Normal'
+      range.font.bold = false
+      range.font.italic = false
+      range.font.underline = 'None'
+      range.font.strikeThrough = false
+      range.font.subscript = false
+      range.font.superscript = false
+      // office-js types `highlightColor` as `string`, but the Office.js docs for this
+      // property state that setting it to `null` removes the highlight — the .d.ts is
+      // simply missing `| null`. Narrow assertion to bypass that typing gap only.
+      range.font.highlightColor = null as unknown as string
+      await context.sync()
+      return 'Successfully cleared formatting'
+    })
   },
 
-  insertPageBreak: {
-    name: 'insertPageBreak',
-    description: 'Insert a page break at the current cursor position.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        location: {
-          type: 'string',
-          description: 'Where to insert: "Before", "After", "Start", or "End"',
-          enum: ['Before', 'After', 'Start', 'End'],
-        },
-      },
-      required: [],
-    },
-    execute: async args => {
-      const { location = 'After' } = args
+  insertPageBreak: async (args: any) => {
+    const { location = 'After' } = args
       return Word.run(async context => {
         const range = context.document.getSelection()
         // insertBreak only supports Before and After for page breaks
@@ -1505,103 +1136,50 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
         await context.sync()
         return `Successfully inserted page break ${location.toLowerCase()}`
       })
-    },
   },
 
-  getRangeInfo: {
-    name: 'getRangeInfo',
-    description:
-      'Get detailed information about the current selection including text, formatting, and position. Returns an error if no text is currently selected.',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-      required: [],
-    },
-    execute: async () => {
-      return Word.run(async context => {
-        const range = context.document.getSelection()
-        const ooxmlResult = range.getOoxml()
-        range.load(['style', 'font/name', 'font/size', 'font/bold', 'font/italic', 'font/underline', 'font/color'])
-        await context.sync()
-        const parsed = parseOoxml(ooxmlResult.value)
+  getRangeInfo: async () => {
+    return Word.run(async context => {
+      const range = context.document.getSelection()
+      const ooxmlResult = range.getOoxml()
+      range.load(['style', 'font/name', 'font/size', 'font/bold', 'font/italic', 'font/underline', 'font/color'])
+      await context.sync()
+      const parsed = parseOoxml(ooxmlResult.value)
 
-        return JSON.stringify(
-          {
-            text: sanitizeWordText(toDisplayText(parsed)),
-            style: range.style,
-            font: {
-              name: range.font.name,
-              size: range.font.size,
-              bold: range.font.bold,
-              italic: range.font.italic,
-              underline: range.font.underline,
-              color: range.font.color,
-            },
+      return JSON.stringify(
+        {
+          text: sanitizeWordText(toDisplayText(parsed)),
+          style: range.style,
+          font: {
+            name: range.font.name,
+            size: range.font.size,
+            bold: range.font.bold,
+            italic: range.font.italic,
+            underline: range.font.underline,
+            color: range.font.color,
           },
-          null,
-          2,
-        )
-      })
-    },
+        },
+        null,
+        2,
+      )
+    })
   },
 
-  selectText: {
-    name: 'selectText',
-    description: 'Select all text in the document or specific location.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        scope: {
-          type: 'string',
-          description: 'What to select: "All" for entire document',
-          enum: ['All'],
-        },
-      },
-      required: ['scope'],
-    },
-    execute: async args => {
-      const { scope } = args
-      return Word.run(async context => {
-        if (scope === 'All') {
-          const body = context.document.body
-          body.select()
-          await context.sync()
-          return 'Successfully selected all text'
-        }
-        return 'Invalid scope'
-      })
-    },
+  selectText: async (args: any) => {
+    const { scope } = args
+    return Word.run(async context => {
+      if (scope === 'All') {
+        const body = context.document.body
+        body.select()
+        await context.sync()
+        return 'Successfully selected all text'
+      }
+      throw new Error(`selectText: unsupported scope "${scope}"`)
+    })
   },
 
-  insertImage: {
-    name: 'insertImage',
-    description:
-      'Insert an image at the current cursor position. Accepts an image URL (http/https) or a base64-encoded image string.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        imageUrl: {
-          type: 'string',
-          description: 'The URL of the image to insert',
-        },
-        width: {
-          type: 'number',
-          description: 'Optional width in points',
-        },
-        height: {
-          type: 'number',
-          description: 'Optional height in points',
-        },
-        location: {
-          type: 'string',
-          description: 'Where to insert: "Before", "After", "Start", "End", or "Replace"',
-          enum: ['Before', 'After', 'Start', 'End', 'Replace'],
-        },
-      },
-      required: ['imageUrl'],
-    },
-    execute: async args => {
-      const { imageUrl, width, height, location = 'After' } = args
+  insertImage: async (args: any) => {
+    const { imageUrl, width, height, location = 'After' } = args
 
       let base64: string
       if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
@@ -1629,19 +1207,10 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
         await context.sync()
         return `Successfully inserted image at ${location}`
       })
-    },
   },
 
-  getTableInfo: {
-    name: 'getTableInfo',
-    description: 'Get information about tables in the document, including row and column counts.',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-      required: [],
-    },
-    execute: async () => {
-      return Word.run(async context => {
+  getTableInfo: async () => {
+    return Word.run(async context => {
         const tables = context.document.body.tables
         tables.load(['items'])
         await context.sync()
@@ -1670,135 +1239,64 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
           2,
         )
       })
-    },
   },
 
-  insertBookmark: {
-    name: 'insertBookmark',
-    description: 'Insert a bookmark at the current selection to mark a location in the document.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: {
-          type: 'string',
-          description: 'The name of the bookmark (must be unique, no spaces allowed)',
-        },
-      },
-      required: ['name'],
-    },
-    execute: async args => {
-      const { name } = args
-      return Word.run(async context => {
-        const range = context.document.getSelection()
+  insertBookmark: async (args: any) => {
+    const { name } = args
+    return Word.run(async context => {
+      const range = context.document.getSelection()
 
-        const bookmarkName = name.replace(/\s+/g, '_')
+      const bookmarkName = name.replace(/\s+/g, '_')
 
-        const contentControl = range.insertContentControl()
-        contentControl.tag = `bookmark_${bookmarkName}`
-        contentControl.title = bookmarkName
-        contentControl.appearance = 'Tags'
+      const contentControl = range.insertContentControl()
+      contentControl.tag = `bookmark_${bookmarkName}`
+      contentControl.title = bookmarkName
+      contentControl.appearance = 'Tags'
 
-        await context.sync()
-        return `Successfully inserted bookmark: ${bookmarkName}`
-      })
-    },
+      await context.sync()
+      return `Successfully inserted bookmark: ${bookmarkName}`
+    })
   },
 
-  goToBookmark: {
-    name: 'goToBookmark',
-    description: 'Navigate to a previously created bookmark in the document.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: {
-          type: 'string',
-          description: 'The name of the bookmark to navigate to',
-        },
-      },
-      required: ['name'],
-    },
-    execute: async args => {
-      const { name } = args
-      return Word.run(async context => {
-        const bookmarkName = name.replace(/\s+/g, '_')
-        const contentControls = context.document.contentControls
-        contentControls.load(['items'])
+  goToBookmark: async (args: any) => {
+    const { name } = args
+    return Word.run(async context => {
+      const bookmarkName = name.replace(/\s+/g, '_')
+      const contentControls = context.document.contentControls
+      contentControls.load(['items'])
+      await context.sync()
+
+      for (const cc of contentControls.items) {
+        cc.load(['tag', 'title'])
         await context.sync()
 
-        for (const cc of contentControls.items) {
-          cc.load(['tag', 'title'])
+        if (cc.tag === `bookmark_${bookmarkName}` || cc.title === bookmarkName) {
+          cc.select()
           await context.sync()
-
-          if (cc.tag === `bookmark_${bookmarkName}` || cc.title === bookmarkName) {
-            cc.select()
-            await context.sync()
-            return `Successfully navigated to bookmark: ${bookmarkName}`
-          }
+          return `Successfully navigated to bookmark: ${bookmarkName}`
         }
+      }
 
-        return `Bookmark not found: ${bookmarkName}`
-      })
-    },
+      return `Bookmark not found: ${bookmarkName}`
+    })
   },
 
-  insertContentControl: {
-    name: 'insertContentControl',
-    description:
-      'Insert a content control (a container for content) at the current selection. Useful for creating structured documents.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        title: {
-          type: 'string',
-          description: 'The title of the content control',
-        },
-        tag: {
-          type: 'string',
-          description: 'Optional tag for programmatic identification',
-        },
-        appearance: {
-          type: 'string',
-          description: 'Visual appearance of the control',
-          enum: ['BoundingBox', 'Tags', 'Hidden'],
-        },
-      },
-      required: ['title'],
-    },
-    execute: async args => {
-      const { title, tag, appearance = 'BoundingBox' } = args
-      return Word.run(async context => {
-        const range = context.document.getSelection()
-        const contentControl = range.insertContentControl()
-        contentControl.title = title
-        if (tag) contentControl.tag = tag
-        contentControl.appearance = appearance as Word.ContentControlAppearance
+  insertContentControl: async (args: any) => {
+    const { title, tag, appearance = 'BoundingBox' } = args
+    return Word.run(async context => {
+      const range = context.document.getSelection()
+      const contentControl = range.insertContentControl()
+      contentControl.title = title
+      if (tag) contentControl.tag = tag
+      contentControl.appearance = appearance as Word.ContentControlAppearance
 
-        await context.sync()
-        return `Successfully inserted content control: ${title}`
-      })
-    },
+      await context.sync()
+      return `Successfully inserted content control: ${title}`
+    })
   },
 
-  findText: {
-    name: 'findText',
-    description: 'Find text in the document and return information about matches. Does not modify the document.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        searchText: {
-          type: 'string',
-          description:
-            'The visible text to search for. Newlines are stripped automatically; search works across paragraphs.',
-        },
-        matchCase: {
-          type: 'boolean',
-          description: 'Whether to match case (default: false)',
-        },
-      },
-      required: ['searchText'],
-    },
-    execute: async args => {
-      const { searchText: rawSearch, matchCase = false } = args
+  findText: async (args: any) => {
+    const { searchText: rawSearch, matchCase = false } = args
       const searchText = prepareSearchText(rawSearch)
       return Word.run(async context => {
         const { parsed } = await getDocumentParsed(context)
@@ -1856,34 +1354,14 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
           2,
         )
       })
-    },
   },
 
-  findAndSelectText: {
-    name: 'findAndSelectText',
-    description:
-      'Find text in the document and select the first occurrence. Use this for SHORT selections (below 20 sentences). After selection, the user will see the text highlighted in Word.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        searchText: {
-          type: 'string',
-          description:
-            'The visible text to search for. Newlines are stripped automatically; search works across paragraphs.',
-        },
-        matchCase: {
-          type: 'boolean',
-          description: 'Whether to match case (default: false)',
-        },
-      },
-      required: ['searchText'],
-    },
-    execute: async args => {
-      const { searchText: rawSearch, matchCase = false } = args
-      const searchText = prepareSearchText(rawSearch)
-      return Word.run(async context => {
-        const { body, parsed } = await getDocumentParsed(context)
-        const target = matchCase ? searchText : searchText.toLowerCase()
+  findAndSelectText: async (args: any) => {
+    const { searchText: rawSearch, matchCase = false } = args
+    const searchText = prepareSearchText(rawSearch)
+    return Word.run(async context => {
+      const { body, parsed } = await getDocumentParsed(context)
+      const target = matchCase ? searchText : searchText.toLowerCase()
         const haystack = matchCase ? parsed.cleanText : parsed.cleanText.toLowerCase()
 
         if (haystack.indexOf(target) === -1) {
@@ -1925,34 +1403,9 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
           2,
         )
       })
-    },
   },
 
-  selectBetweenText: {
-    name: 'selectBetweenText',
-    description:
-      'Anchor-based range expansion tool to select text between two text markers. Use this for LARGE selections (over a page/20+ sentences). IMPORTANT: Both anchors must be unique multi-word phrases (at least 3-5 words), not single words.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        startText: {
-          type: 'string',
-          description:
-            'Unique multi-word phrase (3-5+ words) marking selection start. Newlines are stripped automatically. Must not contain tabs, non-breaking spaces (U+00A0), soft hyphens (U+00AD), or control/zero-width characters. Example: "In the previous section" not just "section".',
-        },
-        endText: {
-          type: 'string',
-          description:
-            'Unique multi-word phrase (3-5+ words) marking selection end. Newlines are stripped automatically. Must not contain tabs, non-breaking spaces (U+00A0), soft hyphens (U+00AD), or control/zero-width characters.',
-        },
-        matchCase: {
-          type: 'boolean',
-          description: 'Whether to match case (default: false)',
-        },
-      },
-      required: ['startText', 'endText'],
-    },
-    execute: async args => {
+  selectBetweenText: async (args: any) => {
       const { startText: rawStart, endText: rawEnd, matchCase = false } = args
       const startText = prepareSearchText(rawStart, 'startText')
       const endText = prepareSearchText(rawEnd, 'endText')
@@ -2048,49 +1501,10 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
           2,
         )
       })
-    },
   },
 
-  setParagraphFormat: {
-    name: 'setParagraphFormat',
-    description: 'Apply paragraph formatting (alignment, spacing, indentation) to selected paragraphs.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        alignment: {
-          type: 'string',
-          description: 'Paragraph alignment',
-          enum: ['Left', 'Centered', 'Right', 'Justified'],
-        },
-        lineSpacing: {
-          type: 'number',
-          description: 'Line spacing in points (e.g., 12 for single, 24 for double with 12pt font)',
-        },
-        spaceBefore: {
-          type: 'number',
-          description: 'Space before paragraph in points',
-        },
-        spaceAfter: {
-          type: 'number',
-          description: 'Space after paragraph in points',
-        },
-        firstLineIndent: {
-          type: 'number',
-          description: 'First line indent in points (negative for hanging indent)',
-        },
-        leftIndent: {
-          type: 'number',
-          description: 'Left indent in points',
-        },
-        rightIndent: {
-          type: 'number',
-          description: 'Right indent in points',
-        },
-      },
-      required: [],
-    },
-    execute: async args => {
-      const { alignment, lineSpacing, spaceBefore, spaceAfter, firstLineIndent, leftIndent, rightIndent } = args
+  setParagraphFormat: async (args: any) => {
+    const { alignment, lineSpacing, spaceBefore, spaceAfter, firstLineIndent, leftIndent, rightIndent } = args
       return Word.run(async context => {
         const range = context.document.getSelection()
         const paragraphs = range.paragraphs
@@ -2110,138 +1524,39 @@ const wordToolDefinitions: Record<WordToolName, WordToolDefinition> = {
         await context.sync()
         return `Successfully applied paragraph formatting to ${paragraphs.items.length} paragraph(s)`
       })
-    },
   },
 
-  setStyle: {
-    name: 'setStyle',
-    description: 'Apply a built-in Word style to the currently selected text or paragraphs.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        style: {
-          type: 'string',
-          description: 'The built-in style to apply',
-          enum: [
-            'Normal',
-            'Heading1',
-            'Heading2',
-            'Heading3',
-            'Heading4',
-            'Title',
-            'Subtitle',
-            'Quote',
-            'IntenseQuote',
-            'ListParagraph',
-            'NoSpacing',
-          ],
-        },
-      },
-      required: ['style'],
-    },
-    execute: async args => {
-      const { style } = args
-      return Word.run(async context => {
-        const range = context.document.getSelection()
-        range.styleBuiltIn = style as Word.BuiltInStyleName
-        await context.sync()
-        return `Successfully applied style: ${style}`
-      })
-    },
-  },
-
-  insertComment: {
-    name: 'insertComment',
-    description:
-      'Add a comment to the currently selected text in the Word document. Requires text to be selected first.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        comment: {
-          type: 'string',
-          description: 'The comment text to add to the selected text',
-        },
-      },
-      required: ['comment'],
-    },
-    execute: async args => {
-      const { comment } = args
-      return Word.run(async context => {
-        const range = context.document.getSelection()
-        range.load('text')
-        await context.sync()
-        if (!range.text.trim()) throw new Error('No text is selected. Select text first before adding a comment.')
-        const commentObj = range.insertComment(comment)
-        commentObj.load('authorName')
-        await context.sync()
-        return `Comment added by ${commentObj.authorName}: "${comment}"`
-      })
-    },
-  },
-}
-
-export function createWordTools(enabledTools?: WordToolName[]) {
-  const tools = Object.entries(wordToolDefinitions)
-    .filter(([name]) => !enabledTools || enabledTools.includes(name as WordToolName))
-    .map(([, def]) => {
-      const schemaObj: Record<string, z.ZodTypeAny> = {}
-
-      for (const [propName, prop] of Object.entries(def.inputSchema.properties)) {
-        let zodType: z.ZodTypeAny
-
-        switch (prop.type) {
-          case 'string':
-            zodType = prop.enum ? z.enum(prop.enum as [string, ...string[]]) : z.string()
-            break
-          case 'number':
-            zodType = z.number()
-            break
-          case 'boolean':
-            zodType = z.boolean()
-            break
-          case 'array':
-            zodType = z.array(z.any())
-            break
-          default:
-            zodType = z.any()
-        }
-
-        if (prop.description) {
-          zodType = zodType.describe(prop.description)
-        }
-
-        if (!def.inputSchema.required?.includes(propName)) {
-          zodType = zodType.optional()
-        }
-
-        schemaObj[propName] = zodType
-      }
-
-      return tool(
-        async input => {
-          try {
-            return await def.execute(input)
-          } catch (error: any) {
-            return `Error: ${error.message || 'Unknown error occurred'}`
-          }
-        },
-        {
-          name: def.name,
-          description: def.description,
-          schema: z.object(schemaObj),
-        },
-      )
+  setStyle: async (args: any) => {
+    const { style } = args
+    return Word.run(async context => {
+      const range = context.document.getSelection()
+      range.styleBuiltIn = style as Word.BuiltInStyleName
+      await context.sync()
+      return `Successfully applied style: ${style}`
     })
+  },
 
-  return tools
+  insertComment: async (args: any) => {
+    const { comment } = args
+    return Word.run(async context => {
+      const range = context.document.getSelection()
+      range.load('text')
+      await context.sync()
+      if (!range.text.trim()) throw new Error('No text is selected. Select text first before adding a comment.')
+      const commentObj = range.insertComment(comment)
+      commentObj.load('authorName')
+      await context.sync()
+      return `Comment added by ${commentObj.authorName}: "${comment}"`
+    })
+  },
 }
 
-export function getWordToolDefinitions(): WordToolDefinition[] {
-  return Object.values(wordToolDefinitions)
-}
+export type WordToolName = keyof typeof wordToolExecutors
 
-export function getWordTool(name: WordToolName): WordToolDefinition | undefined {
-  return wordToolDefinitions[name]
+export function getWordTool(name: string) {
+  const fn = wordToolExecutors[name as WordToolName]
+  if (!fn) throw new Error(`getWordTool: no local executor for Word tool "${name}"`)
+  return fn
 }
 
 /**
@@ -2256,5 +1571,3 @@ export async function getCleanSelectedText(): Promise<string> {
     return sanitizeWordText(toDisplayText(parseOoxml(ooxmlResult.value)))
   })
 }
-
-export { wordToolDefinitions }

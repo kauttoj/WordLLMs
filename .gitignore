@@ -8,6 +8,8 @@ __pycache__/
 .env.local
 .env.*.local
 
+.venv
+
 # Log files
 npm-debug.log*
 yarn-debug.log*
@@ -40,3 +42,4 @@ docker_ohjeita.txt
 /.claude
 /test
 yarn.lock
+TOOLS_UPDATE_PATCH_PLAN.md

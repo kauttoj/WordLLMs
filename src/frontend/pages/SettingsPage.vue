@@ -527,6 +527,14 @@
                   {{ t('wordToolsDescription') }}
                 </p>
               </div>
+              <!-- Error display -->
+              <div
+                v-if="toolManifestError"
+                class="rounded-md border border-red-300 bg-red-50 p-2 text-xs text-red-700 dark:border-red-700 dark:bg-red-900/20 dark:text-red-400"
+              >
+                {{ toolManifestError }}
+                <button class="ml-2 underline" @click="toolManifestError = ''">dismiss</button>
+              </div>
               <div class="flex flex-col gap-2">
                 <div
                   v-for="tool in wordToolsList"
@@ -536,16 +544,14 @@
                   <input
                     :id="'tool-' + tool.name"
                     type="checkbox"
-                    :checked="isToolEnabled(tool.name, !isGeneralTool(tool.name))"
+                    :checked="isToolEnabled(tool.name, !tool.isGeneral)"
                     class="h-4 w-4 cursor-pointer"
-                    @change="toggleTool(tool.name, !isGeneralTool(tool.name))"
+                    @change="toggleTool(tool.name, !tool.isGeneral)"
                   />
-                  <div class="flex flex-col" @click="toggleTool(tool.name, !isGeneralTool(tool.name))">
-                    <label :for="'tool-' + tool.name" class="text-xs font-semibold text-secondary">{{
-                      $t(`wordTool_${tool.name}`)
-                    }}</label>
+                  <div class="flex flex-col" @click="toggleTool(tool.name, !tool.isGeneral)">
+                    <label :for="'tool-' + tool.name" class="text-xs font-semibold text-secondary">{{ tool.name }}</label>
                     <span class="text-xs text-secondary/90">
-                      {{ $t(`wordTool_${tool.name}_desc`) }}
+                      {{ tool.description }}
                     </span>
                   </div>
                 </div>
@@ -791,7 +797,7 @@ import {
   X,
   Zap,
 } from 'lucide-vue-next'
-import { onBeforeMount, ref, watch } from 'vue'
+import { computed, onBeforeMount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
@@ -813,6 +819,8 @@ import {
   toContainerPath,
   toHostPath,
 } from '@/api/profile'
+import { fetchToolManifest, type ToolManifestEntry } from '@/api/toolManifest'
+import { toFrontendName } from '@/api/toolNames'
 import type { MultiAgentConfig } from '@/api/types'
 import CustomButton from '@/components/CustomButton.vue'
 import CustomInput from '@/components/CustomInput.vue'
@@ -831,10 +839,8 @@ import {
   type SystemPromptPreset,
 } from '@/utils/constant'
 import { localStorageKey } from '@/utils/enum'
-import { getGeneralToolDefinitions } from '@/utils/generalTools'
 import useSettingForm from '@/utils/settingForm'
 import { Setting_Names, SettingNames, settingPreset } from '@/utils/settingPreset'
-import { getWordToolDefinitions } from '@/utils/wordTools'
 const { t } = useI18n()
 const router = useRouter()
 const settingForm = useSettingForm()
@@ -846,8 +852,18 @@ const currentTab = ref('provider')
 // provider on the main page. Changing this only selects which panel to show.
 const settingsProvider = ref(localStorage.getItem(localStorageKey.api) || 'openai')
 
-// Word tools list
-const wordToolsList = [...getGeneralToolDefinitions(), ...getWordToolDefinitions()]
+// Word + general tools list, sourced from the backend tool manifest (`/api/tools`).
+// Stays null until fetched; failures surface via toolManifestError in the template
+// rather than rendering an empty (and misleading) list.
+const toolManifest = ref<ToolManifestEntry[] | null>(null)
+const toolManifestError = ref<string>('')
+const wordToolsList = computed(() =>
+  (toolManifest.value ?? []).map(t => ({
+    name: toFrontendName(t.name), // camelCase — the localStorage vocabulary
+    description: t.description,
+    isGeneral: t.kind === 'server',
+  })),
+)
 
 const newCustomModel = ref<Record<string, string>>({})
 
@@ -1165,6 +1181,14 @@ const deletePreset = (id: string) => {
   }
 }
 
+// Whether each set still needs its "enable everything" default applied. Set
+// synchronously by loadToolPreferences() when there's no usable stored value;
+// resolved once the manifest arrives (applyManifestDefaults), never before —
+// populating from an empty/unavailable manifest would silently wipe out a
+// pre-existing selection or persist an empty set.
+let wordToolsNeedDefault = false
+let generalToolsNeedDefault = false
+
 const loadToolPreferences = () => {
   const wordTools = localStorage.getItem('enabledWordTools')
   const generalTools = localStorage.getItem('enabledGeneralTools')
@@ -1173,23 +1197,40 @@ const loadToolPreferences = () => {
     try {
       enabledWordTools.value = new Set(JSON.parse(wordTools))
     } catch {
-      enabledWordTools.value = new Set(getWordToolDefinitions().map(t => t.name))
+      wordToolsNeedDefault = true
     }
   } else {
-    enabledWordTools.value = new Set(getWordToolDefinitions().map(t => t.name))
+    wordToolsNeedDefault = true
   }
 
   if (generalTools) {
     try {
       enabledGeneralTools.value = new Set(JSON.parse(generalTools))
     } catch {
-      const generalToolNames = getGeneralToolDefinitions().map(t => t.name)
-      enabledGeneralTools.value = new Set(generalToolNames)
+      generalToolsNeedDefault = true
     }
   } else {
-    const generalToolNames = getGeneralToolDefinitions().map(t => t.name)
-    enabledGeneralTools.value = new Set(generalToolNames)
+    generalToolsNeedDefault = true
   }
+}
+
+// Applies the "enable everything" default from the manifest, but only for
+// whichever set(s) had no usable stored value. Runs after fetchToolManifest()
+// resolves in onBeforeMount; never runs at all if the fetch fails, so a
+// missing manifest leaves stored preferences untouched (see task spec).
+const applyManifestDefaults = (manifest: ToolManifestEntry[]) => {
+  let changed = false
+  if (wordToolsNeedDefault) {
+    enabledWordTools.value = new Set(manifest.filter(t => t.kind === 'client').map(t => toFrontendName(t.name)))
+    wordToolsNeedDefault = false
+    changed = true
+  }
+  if (generalToolsNeedDefault) {
+    enabledGeneralTools.value = new Set(manifest.filter(t => t.kind === 'server').map(t => toFrontendName(t.name)))
+    generalToolsNeedDefault = false
+    changed = true
+  }
+  if (changed) saveToolPreferences()
 }
 
 const saveToolPreferences = () => {
@@ -1216,11 +1257,6 @@ const toggleTool = (toolName: string, isWordTool: boolean) => {
 
 const isToolEnabled = (toolName: string, isWordTool: boolean): boolean => {
   return isWordTool ? enabledWordTools.value.has(toolName) : enabledGeneralTools.value.has(toolName)
-}
-
-const isGeneralTool = (toolName: string): boolean => {
-  const generalToolNames = getGeneralToolDefinitions().map(t => t.name)
-  return generalToolNames.includes(toolName as any)
 }
 
 // --- MCP Server Management ---
@@ -1446,6 +1482,18 @@ onBeforeMount(async () => {
   loadMcpServers()
 
   addWatch()
+
+  // Manifest failure must not blank the rest of Settings — caught locally so
+  // the error surfaces in the Tools tab (toolManifestError) instead of
+  // propagating out of the lifecycle hook.
+  try {
+    const manifest = await fetchToolManifest()
+    toolManifest.value = manifest
+    applyManifestDefaults(manifest)
+  } catch (error) {
+    console.error('[Settings] Failed to load tool manifest:', error)
+    toolManifestError.value = error instanceof Error ? error.message : String(error)
+  }
 })
 
 function backToHome() {

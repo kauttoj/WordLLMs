@@ -10,21 +10,14 @@
  */
 
 import { message as messageUtil } from '@/utils/message'
-import { getWordTool, WordToolName } from '@/utils/wordTools'
+import { getWordTool } from '@/utils/wordTools'
 
+import { getBackendUrl, setBackendUrl } from './config'
+import { toBackendName, toFrontendName } from './toolNames'
 import { AgentOptions, MultiAgentExpertConfig, MultiAgentOptions, ProviderOptions } from './types'
 
-// Backend URL - empty string means same origin (relative paths)
-// Set to 'http://localhost:8000' for development with separate servers
-const DEFAULT_BACKEND_URL = ''
-
-export function getBackendUrl(): string {
-  return localStorage.getItem('backendUrl') ?? DEFAULT_BACKEND_URL
-}
-
-export function setBackendUrl(url: string): void {
-  localStorage.setItem('backendUrl', url)
-}
+// Re-exported so existing call sites importing from '@/api/backend' keep working.
+export { getBackendUrl, setBackendUrl }
 
 interface BackendMessage {
   role: 'system' | 'user' | 'assistant'
@@ -164,83 +157,6 @@ function getModelName(options: ProviderOptions | AgentOptions): string {
 
 function mapProvider(provider: string): string {
   return provider
-}
-
-// ---------------------------------------------------------------------------
-// Tool name mapping (frontend camelCase ↔ backend snake_case)
-// ---------------------------------------------------------------------------
-
-/** Map frontend tool names to backend Python tool names. */
-function mapToolName(frontendName: string): string | null {
-  const mapping: Record<string, string> = {
-    // Server-side tools (execute natively in Python)
-    webSearch: 'web_search',
-    fetchWebContent: 'fetch_url',
-    getCurrentDate: 'get_current_date',
-    calculateMath: 'calculate',
-    // Client-side Word tools (schema only on backend, executed here via Office.js)
-    getSelectedText: 'get_selected_text',
-    getDocumentContent: 'get_document_content',
-    insertText: 'insert_text',
-    replaceSelectedText: 'replace_selected_text',
-    appendText: 'append_text',
-    insertParagraph: 'insert_paragraph',
-    formatText: 'format_text',
-    searchAndReplace: 'search_and_replace',
-    searchAndReplaceInSelection: 'search_and_replace_in_selection',
-    getDocumentProperties: 'get_document_properties',
-    insertTable: 'insert_table',
-    insertList: 'insert_list',
-    deleteText: 'delete_text',
-    clearFormatting: 'clear_formatting',
-    setParagraphFormat: 'set_paragraph_format',
-    setStyle: 'set_style',
-    insertPageBreak: 'insert_page_break',
-    getRangeInfo: 'get_range_info',
-    selectText: 'select_text',
-    insertImage: 'insert_image',
-    getTableInfo: 'get_table_info',
-    insertBookmark: 'insert_bookmark',
-    goToBookmark: 'go_to_bookmark',
-    insertContentControl: 'insert_content_control',
-    findText: 'find_text',
-    findAndSelectText: 'find_and_select_text',
-    selectBetweenText: 'select_between_text',
-    insertComment: 'insert_comment',
-  }
-  return mapping[frontendName] ?? null
-}
-
-/** Reverse mapping: backend snake_case → frontend camelCase. */
-const BACKEND_TO_FRONTEND_TOOL: Record<string, string> = {
-  get_selected_text: 'getSelectedText',
-  get_document_content: 'getDocumentContent',
-  insert_text: 'insertText',
-  replace_selected_text: 'replaceSelectedText',
-  append_text: 'appendText',
-  insert_paragraph: 'insertParagraph',
-  format_text: 'formatText',
-  search_and_replace: 'searchAndReplace',
-  search_and_replace_in_selection: 'searchAndReplaceInSelection',
-  get_document_properties: 'getDocumentProperties',
-  insert_table: 'insertTable',
-  insert_list: 'insertList',
-  delete_text: 'deleteText',
-  clear_formatting: 'clearFormatting',
-  set_paragraph_format: 'setParagraphFormat',
-  set_style: 'setStyle',
-  insert_page_break: 'insertPageBreak',
-  get_range_info: 'getRangeInfo',
-  select_text: 'selectText',
-  insert_image: 'insertImage',
-  get_table_info: 'getTableInfo',
-  insert_bookmark: 'insertBookmark',
-  go_to_bookmark: 'goToBookmark',
-  insert_content_control: 'insertContentControl',
-  find_text: 'findText',
-  find_and_select_text: 'findAndSelectText',
-  select_between_text: 'selectBetweenText',
-  insert_comment: 'insertComment',
 }
 
 // ---------------------------------------------------------------------------
@@ -554,34 +470,17 @@ export async function streamChatFromBackend(options: ProviderOptions, language?:
  * Returns the string result (or error message).
  */
 async function executeClientTool(tc: ClientToolCall): Promise<string> {
-  const frontendName = BACKEND_TO_FRONTEND_TOOL[tc.name]
-  if (!frontendName) {
-    throw new Error(`No frontend mapping for backend tool: ${tc.name}`)
-  }
-
-  const toolDef = getWordTool(frontendName as WordToolName)
-  if (!toolDef) {
-    throw new Error(`Word tool not found: ${frontendName}`)
-  }
-
-  const result = await toolDef.execute(tc.args)
+  const frontendName = toFrontendName(tc.name)
+  const result = await getWordTool(frontendName)(tc.args)
   return String(result)
 }
 
 export async function streamAgentFromBackend(options: AgentOptions, language?: string): Promise<void> {
   const backendUrl = getBackendUrl()
 
-  // Extract and map tool names from tool objects
-  const toolNames: string[] = []
-  if (options.tools) {
-    for (const tool of options.tools) {
-      if (typeof tool.name === 'string') {
-        const backendName = mapToolName(tool.name)
-        if (backendName) toolNames.push(backendName)
-      }
-    }
-  }
-  // MCP tools are already in backend format — append directly
+  // Map frontend camelCase tool names to backend snake_case.
+  const toolNames: string[] = (options.tools ?? []).map(toBackendName)
+  // MCP tools are already in backend format — append directly (unmapped).
   if (options.mcpTools) {
     toolNames.push(...options.mcpTools)
   }
@@ -820,8 +719,7 @@ interface MultiAgentRequestBody {
   overseer: any
   synthesizer?: any
   formatter?: any
-  expert_tools: string[]
-  supervisor_tools: string[]
+  tools: string[]
   recursion_limit: number
   llm_timeout: number
   filter_thinking: boolean
@@ -837,67 +735,6 @@ interface MultiAgentContinueRequestBody {
   tool_results: { call_id: string; name: string; result: string }[]
 }
 
-// Build tool lists for multiagent, filtered by user-enabled tools
-function buildMultiAgentToolLists(
-  enabledWordToolNames: string[],
-  enabledGeneralToolNames: string[],
-  mcpToolNames: string[] = [],
-): { expertTools: string[]; supervisorTools: string[] } {
-  // Map enabled frontend names to backend names
-  const enabledBackend = new Set(
-    [...enabledWordToolNames, ...enabledGeneralToolNames]
-      .map(name => mapToolName(name))
-      .filter((n): n is string => n !== null),
-  )
-
-  const isEnabled = (name: string) => enabledBackend.has(name)
-
-  // READ_ONLY Word tools for experts (backend snake_case names)
-  // Must match READ_ONLY_WORD_TOOLS in src/utils/wordTools.ts
-  const readOnlyWordTools = [
-    'get_selected_text',
-    'get_document_content',
-    'get_document_properties',
-    'get_range_info',
-    'get_table_info',
-    'find_text',
-    'select_text',
-    'find_and_select_text',
-    'select_between_text',
-    'go_to_bookmark',
-  ].filter(isEnabled)
-
-  // Write Word tools for supervisors
-  const writeWordTools = [
-    'insert_text',
-    'replace_selected_text',
-    'append_text',
-    'insert_paragraph',
-    'format_text',
-    'search_and_replace',
-    'search_and_replace_in_selection',
-    'insert_table',
-    'insert_list',
-    'delete_text',
-    'clear_formatting',
-    'set_paragraph_format',
-    'set_style',
-    'insert_page_break',
-    'insert_image',
-    'insert_bookmark',
-    'insert_content_control',
-  ].filter(isEnabled)
-
-  // General tools (backend tool names)
-  const generalTools = ['web_search', 'fetch_url', 'calculate', 'get_current_date'].filter(isEnabled)
-
-  // MCP tools are available to both experts and supervisors (external server tools)
-  return {
-    expertTools: [...readOnlyWordTools, ...generalTools, ...mcpToolNames],
-    supervisorTools: [...readOnlyWordTools, ...writeWordTools, ...generalTools, ...mcpToolNames],
-  }
-}
-
 export async function streamMultiAgentFromBackend(options: MultiAgentOptions): Promise<void> {
   const backendUrl = getBackendUrl()
 
@@ -907,12 +744,9 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
   const synthesizerConfig = options.synthesizer ? buildExpertConfig(options.synthesizer) : null
   const formatterConfig = options.formatter ? buildExpertConfig(options.formatter) : undefined
 
-  // Build tool lists filtered by user's enabled tools
-  const { expertTools, supervisorTools } = buildMultiAgentToolLists(
-    options.enabledWordTools ?? [],
-    options.enabledGeneralTools ?? [],
-    options.mcpTools ?? [],
-  )
+  // Map frontend camelCase tool names to backend snake_case; MCP names are
+  // already in backend format and are concatenated unmapped.
+  const tools = (options.tools ?? []).map(toBackendName).concat(options.mcpTools ?? [])
 
   // Build the initial multiagent request
   const multiAgentBody: MultiAgentRequestBody = {
@@ -927,8 +761,7 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
     overseer: overseerConfig,
     synthesizer: synthesizerConfig,
     formatter: formatterConfig,
-    expert_tools: expertTools,
-    supervisor_tools: supervisorTools,
+    tools,
     recursion_limit: options.recursionLimit,
     llm_timeout: options.llmTimeout,
     filter_thinking: false, // Can be enhanced to support per-expert thinking filtering

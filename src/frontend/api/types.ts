@@ -1,5 +1,6 @@
 import { BaseMessage } from '@langchain/core/messages'
 import { Ref } from 'vue'
+
 import type { CostInfo } from './backend'
 
 export interface BaseChatCompletionOptions {
@@ -90,7 +91,7 @@ type supportedProviders = 'openai' | 'ollama' | 'groq' | 'gemini' | 'azure' | 'l
 // Agent options with tools support
 export interface AgentOptions extends BaseChatCompletionOptions {
   provider: supportedProviders
-  tools?: any[]
+  tools?: string[]
   mcpTools?: string[] // MCP tool names (already in backend format)
   onToolCall?: (toolName: string, args: any) => void
   onToolResult?: (toolName: string, result: string) => void
@@ -168,8 +169,7 @@ export interface MultiAgentOptions extends BaseChatCompletionOptions {
   formatter?: MultiAgentExpertConfig
   recursionLimit: number
   language?: string
-  enabledWordTools?: string[]
-  enabledGeneralTools?: string[]
+  tools?: string[]
   mcpTools?: string[] // MCP tool names (already in backend format)
   onMessage?: (content: string, speaker?: string, round?: number) => void
   onToolCall?: (toolName: string, args: any, speaker?: string) => void

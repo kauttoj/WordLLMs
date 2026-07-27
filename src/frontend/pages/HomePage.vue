@@ -553,7 +553,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import { v4 as uuidv4 } from 'uuid'
-import { computed, nextTick, onActivated, onBeforeMount, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeMount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
@@ -570,6 +570,8 @@ import {
 } from '@/api/backend'
 import { insertFormattedResult, insertResult } from '@/api/common'
 import { activeStreams } from '@/api/profile'
+import { fetchToolManifest, type ToolManifestEntry } from '@/api/toolManifest'
+import { toFrontendName } from '@/api/toolNames'
 import type { BotMetadata, MultiAgentConfig, MultiAgentExpertConfig } from '@/api/types'
 import { getAgentResponse, getChatResponse, getMultiAgentResponse } from '@/api/union'
 import CustomButton from '@/components/CustomButton.vue'
@@ -590,7 +592,7 @@ import { message as messageUtil } from '@/utils/message'
 import { ToolCallMessage } from '@/utils/messageTypes'
 import useSettingForm from '@/utils/settingForm'
 import { settingPreset } from '@/utils/settingPreset'
-import { createWordTools, getCleanSelectedText, READ_ONLY_WORD_TOOLS, WordToolName } from '@/utils/wordTools'
+import { getCleanSelectedText, wordToolExecutors, WordToolName } from '@/utils/wordTools'
 
 defineOptions({ name: 'Home' })
 
@@ -614,36 +616,7 @@ const activeSystemPromptDisplayName = computed(() => {
 })
 
 
-const allWordToolNames: WordToolName[] = [
-  'getSelectedText',
-  'getDocumentContent',
-  'insertText',
-  'replaceSelectedText',
-  'appendText',
-  'insertParagraph',
-  'formatText',
-  'searchAndReplace',
-  'searchAndReplaceInSelection',
-  'getDocumentProperties',
-  'insertTable',
-  'insertList',
-  'deleteText',
-  'clearFormatting',
-  'setParagraphFormat',
-  'setStyle',
-  'insertPageBreak',
-  'getRangeInfo',
-  'selectText',
-  'insertImage',
-  'getTableInfo',
-  'insertBookmark',
-  'goToBookmark',
-  'insertContentControl',
-  'findText',
-  'findAndSelectText',
-  'selectBetweenText',
-  'insertComment',
-]
+const allWordToolNames = Object.keys(wordToolExecutors) as WordToolName[]
 
 const allGeneralToolNames: GeneralToolName[] = ['webSearch', 'fetchWebContent', 'getCurrentDate', 'calculateMath']
 
@@ -695,22 +668,44 @@ onActivated(() => {
   systemPromptPresets.value = getSystemPromptPresets()
   resolveActiveSystemPrompt()
   multiAgentConfig.value = loadMultiAgentConfig()
+  // Retry a manifest fetch that failed earlier (e.g. backend not yet up at
+  // first mount). This page is kept alive, so onMounted never fires again.
+  if (!toolManifest.value) void loadToolManifest()
 })
 
-function getActiveWordToolNames(): WordToolName[] {
-  if (readOnlyMode.value) {
-    return enabledWordTools.value.filter(name => READ_ONLY_WORD_TOOLS.includes(name))
+// Tool manifest (fetched once, cached in api/toolManifest.ts and shared with
+// SettingsPage). Stays null if the fetch fails — never falls back to a
+// default list, since that would silently defeat read-only mode below.
+const toolManifest = ref<ToolManifestEntry[] | null>(null)
+
+let manifestInFlight = false
+
+async function loadToolManifest(): Promise<void> {
+  // onActivated also fires on the initial mount, so guard against a duplicate
+  // concurrent fetch (and a duplicate error toast) on first load.
+  if (manifestInFlight) return
+  manifestInFlight = true
+  try {
+    toolManifest.value = await fetchToolManifest()
+  } catch (error) {
+    console.error('[HomePage] Failed to load tool manifest:', error)
+    messageUtil.error(String(error))
+  } finally {
+    manifestInFlight = false
   }
-  return enabledWordTools.value
 }
 
-function getActiveTools() {
-  // Word tools run client-side via the backend interrupt() mechanism.
-  // General tools execute server-side; only their names need to travel
-  // with the request, so we represent them as bare {name} objects.
-  const wordTools = createWordTools(getActiveWordToolNames())
-  const generalTools = enabledGeneralTools.value.map(name => ({ name }))
-  return [...generalTools, ...wordTools]
+onMounted(loadToolManifest)
+
+function getActiveWordToolNames(): WordToolName[] {
+  if (!readOnlyMode.value) return enabledWordTools.value
+  if (!toolManifest.value) {
+    throw new Error('Tool manifest unavailable — cannot apply read-only mode safely. Check the backend connection.')
+  }
+  const writeNames = new Set(
+    toolManifest.value.filter(t => t.category === 'write').map(t => toFrontendName(t.name)),
+  )
+  return enabledWordTools.value.filter(n => !writeNames.has(n))
 }
 
 function resolveActiveSystemPrompt() {
@@ -1520,8 +1515,7 @@ async function processChat(
       llmTimeout: settings.llmTimeout,
       language: languageParam,
       additionalSystemPrompt: additionalSystemPrompt.value || undefined,
-      enabledWordTools: getActiveWordToolNames(),
-      enabledGeneralTools: enabledGeneralTools.value,
+      tools: [...enabledGeneralTools.value, ...getActiveWordToolNames()],
       mcpTools: enabledMcpTools.value,
       messages: finalMessages,
       errorIssue,
@@ -1599,8 +1593,6 @@ async function processChat(
       mode.value = 'agent'
     }
   } else if (isAgentMode) {
-    const tools = getActiveTools()
-
     await getAgentResponse(
       {
         ...currentConfig,
@@ -1608,7 +1600,7 @@ async function processChat(
         llmTimeout: settings.llmTimeout,
         additionalSystemPrompt: additionalSystemPrompt.value || undefined,
         messages: finalMessages,
-        tools,
+        tools: [...enabledGeneralTools.value, ...getActiveWordToolNames()],
         mcpTools: enabledMcpTools.value,
         errorIssue,
         loading,

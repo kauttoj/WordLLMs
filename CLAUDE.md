@@ -65,7 +65,7 @@ src/frontend/
 │   ├── common.ts       # Word document insertion helpers
 │   └── types.ts        # Provider option interfaces
 ├── utils/
-│   ├── wordTools.ts    # 25+ Word manipulation tools for agent (createWordTools)
+│   ├── wordTools.ts    # Office.js executors for the 28 Word tools (wordToolExecutors)
 │   ├── generalTools.ts # General agent tools (web search, fetch, math, date)
 │   ├── settingPreset.ts # Settings schema with localStorage persistence
 │   └── constant.ts     # Available models per provider
@@ -124,14 +124,20 @@ src/backend/
   - `fetch_url` - HTTP requests with HTML-to-text conversion
   - `calculate` - Safe math evaluation
   - `get_current_date` - Date/time information
-- Tool names mapped from frontend (`src/frontend/api/backend.ts:mapToolName()`)
+- Tool names converted between camelCase (frontend) and snake_case (backend) by `toBackendName()` / `toFrontendName()` in `src/frontend/api/toolNames.ts`
 - Word manipulation tools remain browser-side (Office.js requires browser context)
 
-**Browser Mode**:
-- All tools run client-side defined in `src/frontend/utils/`:
-  - **Word Tools** (`wordTools.ts`): 25+ document manipulation tools via Office.js
-  - **General Tools** (`generalTools.ts`): Web search, fetch, math, date
-- Tools created using LangChain's `tool()` helper with Zod schemas
+**Tool definitions — single source of truth**:
+- `src/backend/tools/word_tools.py` owns every Word tool's name, description, JSON
+  schema and category (`read` / `select` / `write`). Nothing else defines them.
+- `GET /api/tools` publishes the manifest (`name`, `description`, `kind`, `category`);
+  `src/frontend/api/toolManifest.ts` caches it and asserts parity against
+  `wordToolExecutors` in both directions, failing loudly on drift.
+- The frontend holds executors only — no Zod schemas, no descriptions, no i18n keys
+  for tool names. Settings and read-only filtering read the manifest.
+
+**Browser Mode**: deprecated. `src/frontend/api/union.ts` is a thin shim that forwards
+everything to the backend; no client-side LangChain models or tools remain.
 
 ### Conversation History (Consigliere Model)
 

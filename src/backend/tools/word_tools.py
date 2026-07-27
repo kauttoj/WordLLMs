@@ -41,7 +41,7 @@ def get_document_properties() -> str:
 
 @tool
 def get_range_info() -> str:
-    """Get detailed information about the current selection including text, formatting, and position. Returns an error if no text is currently selected."""
+    """Get detailed information about the current selection, including its text and character formatting."""
     _client_only()
 
 
@@ -94,35 +94,38 @@ def select_between_text(startText: str, endText: str, matchCase: bool = False) -
 # --- Text Insertion / Modification Tools ---
 
 @tool
-def insert_text(text: str, location: str = "End") -> str:
+def insert_text(text: str, location: str = "End", keepStyle: bool = False) -> str:
     """Insert plain text at the current cursor position. Do not use markdown.
     Use \\n for paragraph breaks. The cursor advances after each insertion.
 
     Args:
         text: The text to insert. Use \\n for paragraph breaks.
         location: Where to insert relative to cursor: "Start", "End", "Before", "After", or "Replace".
+        keepStyle: Keep the source paragraph style for inserted paragraphs. Default false, which resets subsequent paragraphs to Normal to prevent heading style bleed.
     """
     _client_only()
 
 
 @tool
-def replace_selected_text(newText: str) -> str:
+def replace_selected_text(newText: str, keepStyle: bool = False) -> str:
     """Replace the entire selection with new content. For small targeted edits, use search_and_replace instead.
     Do not use markdown. Use \\n for paragraph breaks.
 
     Args:
         newText: The replacement text. Use \\n for paragraph breaks.
+        keepStyle: Keep the source paragraph style for inserted paragraphs. Default false, which resets subsequent paragraphs to Normal to prevent heading style bleed.
     """
     _client_only()
 
 
 @tool
-def append_text(text: str) -> str:
+def append_text(text: str, keepStyle: bool = False) -> str:
     """Append plain text to the end of the document. Do not use markdown.
     Use \\n for paragraph breaks.
 
     Args:
         text: The text to append. Use \\n for paragraph breaks.
+        keepStyle: Keep the source paragraph style for inserted paragraphs. Default false, which resets subsequent paragraphs to Normal to prevent heading style bleed.
     """
     _client_only()
 
@@ -141,35 +144,33 @@ def insert_paragraph(text: str, location: str = "After", style: Optional[str] = 
 
 
 @tool
-def delete_text(direction: str = "After") -> str:
-    """Delete the currently selected text or a specific range. If no text is selected, this will delete at the cursor position.
-
-    Args:
-        direction: Direction to delete if nothing selected: "Before" (backspace) or "After" (delete key).
-    """
+def delete_text() -> str:
+    """Delete the currently selected text. Requires a selection -- select text first with find_and_select_text or select_between_text."""
     _client_only()
 
 
 @tool
-def search_and_replace(searchText: str, replaceText: str, matchCase: bool = False) -> str:
+def search_and_replace(searchText: str, replaceText: str, matchCase: bool = False, keepStyle: bool = False) -> str:
     """Search for text in the document and replace it with new text. This is the preferred tool for targeted edits -- use it for proofreading fixes, correcting typos, grammar, or any task that changes specific words or phrases.
 
     Args:
         searchText: The exact text to find (must match document content precisely).
         replaceText: The corrected or replacement text.
         matchCase: Whether to match case (default: false).
+        keepStyle: Keep the source paragraph style for inserted paragraphs. Default false, which resets subsequent paragraphs to Normal to prevent heading style bleed.
     """
     _client_only()
 
 
 @tool
-def search_and_replace_in_selection(searchText: str, replaceText: str, matchCase: bool = False) -> str:
+def search_and_replace_in_selection(searchText: str, replaceText: str, matchCase: bool = False, keepStyle: bool = False) -> str:
     """Search for text within the current selection and replace it. Same as search_and_replace but scoped to the active selection only.
 
     Args:
         searchText: The exact text to find within the selection.
         replaceText: The corrected or replacement text.
         matchCase: Whether to match case (default: false).
+        keepStyle: Keep the source paragraph style for inserted paragraphs. Default false, which resets subsequent paragraphs to Normal to prevent heading style bleed.
     """
     _client_only()
 
@@ -292,7 +293,7 @@ def insert_image(imageUrl: str, width: Optional[float] = None, height: Optional[
 
 @tool
 def select_text(scope: str) -> str:
-    """Select all text in the document or specific location.
+    """Select the entire document body. The only supported scope is "All".
 
     Args:
         scope: What to select: "All" for entire document.
@@ -344,35 +345,28 @@ def insert_comment(comment: str) -> str:
 
 # --- Registry ---
 
-CLIENT_TOOLS = [
-    get_selected_text,
-    get_document_content,
-    get_document_properties,
-    get_range_info,
-    get_table_info,
-    find_text,
-    find_and_select_text,
-    select_between_text,
-    insert_text,
-    replace_selected_text,
-    append_text,
-    insert_paragraph,
-    delete_text,
-    search_and_replace,
-    search_and_replace_in_selection,
-    format_text,
-    clear_formatting,
-    set_paragraph_format,
-    set_style,
-    insert_table,
-    insert_list,
-    insert_page_break,
-    insert_image,
-    select_text,
-    insert_bookmark,
-    go_to_bookmark,
-    insert_content_control,
-    insert_comment,
+READ_TOOLS = [
+    get_selected_text, get_document_content, get_document_properties,
+    get_range_info, get_table_info, find_text,
+]
+SELECT_TOOLS = [
+    find_and_select_text, select_between_text, select_text, go_to_bookmark,
+]
+WRITE_TOOLS = [
+    insert_text, replace_selected_text, append_text, insert_paragraph,
+    delete_text, search_and_replace, search_and_replace_in_selection,
+    format_text, clear_formatting, set_paragraph_format, set_style,
+    insert_table, insert_list, insert_page_break, insert_image,
+    insert_bookmark, insert_content_control, insert_comment,
 ]
 
-CLIENT_TOOL_NAMES: set[str] = {t.name for t in CLIENT_TOOLS}
+CLIENT_TOOLS = READ_TOOLS + SELECT_TOOLS + WRITE_TOOLS
+CLIENT_TOOL_CATEGORY = {
+    t.name: cat
+    for cat, ts in (("read", READ_TOOLS), ("select", SELECT_TOOLS), ("write", WRITE_TOOLS))
+    for t in ts
+}
+
+# Hard-coding 28 is deliberate: a tool added later must be a conscious edit
+# here, not a silent slip. Update the number in the same commit that adds a tool.
+assert len(CLIENT_TOOL_CATEGORY) == len(CLIENT_TOOLS) == 28

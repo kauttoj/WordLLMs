@@ -189,8 +189,7 @@ class MultiAgentRequest(BaseModel):
     synthesizer: MultiAgentExpertConfig | None = None  # If None, use overseer
     formatter: MultiAgentExpertConfig | None = None  # Cheap model for legacy mode tag extraction fallback
 
-    expert_tools: list[str] = Field(default_factory=list)
-    supervisor_tools: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
 
     recursion_limit: int = Field(default=120, ge=1)
     llm_timeout: int = Field(default=90, ge=5)  # Seconds per LLM API call

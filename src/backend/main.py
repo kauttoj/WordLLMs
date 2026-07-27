@@ -22,7 +22,7 @@ from .schemas import (
 )
 from .file_processing import format_attachments_for_message
 from .providers import create_model
-from .tools import get_tools, ALL_TOOLS
+from .tools import get_tools, CLIENT_TOOLS, SERVER_TOOLS, CLIENT_TOOL_CATEGORY
 from .agents import stream_chat, stream_agent, resume_agent
 from .agents.chat_multiagent import stream_multiagent, resume_multiagent
 from .conversation_store import ConversationStore
@@ -155,12 +155,18 @@ async def health_check():
 
 @app.get("/api/tools")
 async def list_tools():
-    return {
-        "tools": [
-            {"name": name, "description": tool.description}
-            for name, tool in ALL_TOOLS.items()
-        ]
-    }
+    tools = [
+        {"name": n, "description": t.description, "kind": "client",
+         "category": CLIENT_TOOL_CATEGORY[n]}
+        for n, t in CLIENT_TOOLS.items()
+    ] + [
+        {"name": n, "description": t.description, "kind": "server",
+         "category": "server"}
+        for n, t in SERVER_TOOLS.items()
+    ]
+    tools.append({"name": "web_search", "kind": "server", "category": "server",
+                  "description": "Search the web for current information."})
+    return {"tools": tools}
 
 @app.get("/api/context-stats/{conversation_id}")
 async def context_stats(conversation_id: str):
@@ -353,9 +359,15 @@ async def multiagent_completion(request: MultiAgentRequest):
                     reasoning_effort=request.formatter.reasoning_effort,
                 )
 
-            # 5. Resolve Tools
-            expert_server_tools, expert_client_tools = get_tools(request.expert_tools, tavily_api_key=request.tavily_api_key, mcp_manager=mcp_manager)
-            supervisor_server_tools, supervisor_client_tools = get_tools(request.supervisor_tools, tavily_api_key=request.tavily_api_key, mcp_manager=mcp_manager)
+            # 5. Resolve Tools — backend derives the expert/supervisor split from
+            # the single flat tool list the frontend sends (read + select tools
+            # go to experts; the full list goes to supervisors).
+            supervisor_names = list(request.tools)
+            expert_names = [n for n in request.tools
+                            if n not in CLIENT_TOOLS
+                            or CLIENT_TOOL_CATEGORY[n] != "write"]
+            expert_server_tools, expert_client_tools = get_tools(expert_names, tavily_api_key=request.tavily_api_key, mcp_manager=mcp_manager)
+            supervisor_server_tools, supervisor_client_tools = get_tools(supervisor_names, tavily_api_key=request.tavily_api_key, mcp_manager=mcp_manager)
 
             # 5. Start the LangGraph Multi-Agent Stream
             async for event in stream_multiagent(

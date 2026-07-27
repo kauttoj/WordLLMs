@@ -224,6 +224,7 @@ def generate_multiagent_expert_prompt(
     mode: Literal["parallel", "collaborative"] = "parallel",
     language: str = "English",
     legacy_mode: bool = False,
+    tools: list | None = None,
 ) -> str:
     """Build expert prompt with contextual instructions for multiagent mode.
 
@@ -237,33 +238,42 @@ def generate_multiagent_expert_prompt(
         mode: "parallel" or "collaborative"
         language: Target language for communication
         legacy_mode: If True, instruct expert to use markdown sections for output
+        tools: Tool objects bound to this expert (used for listing and guidance)
 
     Returns:
         System prompt string for the expert
     """
+    tools = tools or []
+    tool_sections = _build_tool_sections(tools)
+    has_tools = bool(tools)
+
     if mode == "parallel":
+        use_tools_hint = " NEVER ask the user to provide or paste text -- use your tools." if has_tools else ""
+        use_tools_hint_short = " NEVER ask the user to provide text." if has_tools else ""
         prompt = f"""You are an AI assistant performing a task given by the user. You are provided access to a user document with read-only tools.
 
 # Your Role
 You are an ANALYST and ADVISOR for the Synthesizer AI. Analyze the task and provide your best response and recommendations. The Synthesizer reviews your input and produces the final response to the user.
 
 # Instructions
-1. If the task could relate to the document in ANY way, read it BEFORE responding. NEVER ask the user to provide or paste text -- use your tools.
+1. If the task could relate to the document in ANY way, read it BEFORE responding.{use_tools_hint}
 2. Analyze the user's request thoroughly.
 3. Provide specific, actionable recommendations to the Synthesizer with clear reasoning.
-4. Use tools efficiently -- read the document or part of it, unless task is purely a general knowledge question unrelated to the document. NEVER ask the user to provide text.
+4. Use tools efficiently -- read the document or part of it, unless task is purely a general knowledge question unrelated to the document.{use_tools_hint_short}
 
 Structure your response:
 - **Assessment**: What is the task/issue and what user needs.
 - **Recommendation**: Provide you response. Favor surgical, diff-style suggestions (e.g., bullet list of replacements/insertions/deletions with quoted snippets). Provide full, rewritten text sections only if diffs are impractical.
 - **Reasoning**: Why this approach is best.
 
+{tool_sections}
+
 Communicate and provide results in {language}."""
-        
+
     else:  # collaborative
         expert_list = ', '.join(f'Expert_{i+1}' for i in range(total_experts))
 
-        base_prompt = f"""You are an AI assistant {expert_name} in a collaborative expert panel ({expert_list}) managed by the Overseer AI. 
+        base_prompt = f"""You are an AI assistant {expert_name} in a collaborative expert panel ({expert_list}) managed by the Overseer AI.
 
 # Your Role
 You are an ANALYST and ADVISOR with read-only document access. You provide recommendation to the Overseer AI.
@@ -285,10 +295,11 @@ You can read the document but CANNOT edit it. The Overseer makes final decisions
             - **Proposed Changes**: Favor surgical, diff-style suggestions (e.g., bullet list of replacements/insertions/deletions with quoted snippets). Provide full rewrites only if diffs are impractical.
             - **Reasoning**: State why this approach is optimal."""
 
+            use_tools_hint = " NEVER ask the user to provide text -- use your tools." if has_tools else ""
             prompt = base_prompt + f"""
 
 ## Round 1 Instructions
-1. If the task involves the document in any way, read it fully or partially before responding. NEVER ask the user to provide text -- use your tools. Only skip if the task is purely a general knowledge question unrelated to the document.
+1. If the task involves the document in any way, read it fully or partially before responding.{use_tools_hint} Only skip if the task is purely a general knowledge question unrelated to the document.
 2. Provide your OWN initial analysis and recommendations based on your reading.
 3. Be specific -- quote relevant document content so others can follow your reasoning.
 4. Do NOT waste time validating or restating what previous experts have said. Your sole function is to add value by providing new angles, missing details, alternative interpretations, or spotting errors in prior analysis.
@@ -303,6 +314,7 @@ You can read the document but CANNOT edit it. The Overseer makes final decisions
             - **Proposed Adjustments**: Provide your new or modified diff-style suggestions (e.g., bullet list of replacements/insertions/deletions with quoted snippets).
             - **Reasoning**: Justify why your divergence or addition is necessary."""
 
+            use_tools_hint = " NEVER ask the user to provide text -- use your tools." if has_tools else ""
             prompt = base_prompt + f"""
 
 ## Round {round_num} Instructions
@@ -313,7 +325,7 @@ You can read the document but CANNOT edit it. The Overseer makes final decisions
 
 ## Steps
 1. Review prior expert responses. Identify unverified assumptions, potential flaws, or missing edge cases.
-2. If you need to verify a claim or check document content, re-read it. Do not take claims at face value. NEVER ask the user to provide text -- use your tools.
+2. If you need to verify a claim or check document content, re-read it. Do not take claims at face value.{use_tools_hint}
 3. Provide ONLY your unique contribution:
    - Disagreements/Corrections: state clearly with rigorous reasoning and exact document quotes.
    - New insights/Optimizations: present with supporting evidence.
@@ -322,6 +334,8 @@ You can read the document but CANNOT edit it. The Overseer makes final decisions
 
 {collab_output}
 """
+
+        prompt += f"\n\n{tool_sections}"
 
     if mode == "collaborative":
         prompt += "\n\n# Memory System\n"
@@ -432,6 +446,9 @@ def generate_multiagent_overseer_prompt(
     language: str = "English",
 ) -> str:
     """Build overseer evaluation prompt for collaborative mode round evaluation.
+
+    Evaluation-only: overseer_node calls this with with_structured_output_compat
+    and never binds tools, so this prompt takes no `tools` argument.
 
     Args:
         total_experts: Total number of experts in the discussion

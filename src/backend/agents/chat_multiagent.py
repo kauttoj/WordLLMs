@@ -51,11 +51,6 @@ except ImportError:
 # Max retries when an expert LLM returns empty content (transient provider quirk)
 MAX_EMPTY_RETRIES = 2
 
-# Controls how parallel-mode experts execute.
-# "sequential" = current LangGraph sequential execution (experts run one at a time inside graph)
-# "parallel"   = true async parallel execution (experts run concurrently via asyncio)
-PARALLEL_EXPERT_MODE: Literal["sequential", "parallel"] = "parallel"
-
 
 class ToolBroker:
     """Batches client tool requests from parallel async experts for SSE interrupt.
@@ -550,17 +545,13 @@ def tool_node(state: MultiAgentState, config):
     """
     last_msg = state["messages"][-1]
 
-    all_server_tools = (
-        (config["configurable"]["expert_server_tools"] or []) +
-        (config["configurable"]["supervisor_server_tools"] or [])
-    )
-    server_tool_map = {t.name: t for t in all_server_tools}
+    caller = state.get("last_tool_caller")
+    if caller not in ("expert", "synthesizer", "overseer"):
+        raise ValueError(f"tool_node: unknown last_tool_caller {caller!r}")
+    role = "expert" if caller == "expert" else "supervisor"
 
-    all_client_tool_names = {
-        t.name for t in (config["configurable"]["expert_client_tools"] or [])
-    } | {
-        t.name for t in (config["configurable"]["supervisor_client_tools"] or [])
-    }
+    server_tool_map = {t.name: t for t in (config["configurable"][f"{role}_server_tools"] or [])}
+    all_client_tool_names = {t.name for t in (config["configurable"][f"{role}_client_tools"] or [])}
 
     print(f"[MultiAgent:Tools] Processing {len(last_msg.tool_calls)} tool call(s)")
     print(f"[MultiAgent:Tools]   Mode: {state['mode']}, Caller: {state.get('last_tool_caller', 'unknown')}")
@@ -615,7 +606,8 @@ def parallel_expert_node(state: MultiAgentState, config):
     print(f"[MultiAgent:ParallelExpert]   User messages: {len(user_messages)}")
 
     system_prompt = generate_multiagent_expert_prompt(
-        expert_name, idx, total_experts, 1, False, "", "parallel", state["language"]
+        expert_name, idx, total_experts, 1, False, "", "parallel", state["language"],
+        tools=get_tools_list(config, "expert"),
     )
     system_prompt = inject_behavior(system_prompt, state.get("additional_system_prompt", "") or None)
 
@@ -676,7 +668,8 @@ def parallel_tool_post_processing_node(state: MultiAgentState, config):
     print(f"[MultiAgent:ParallelPostProcess]   Model: {model.__class__.__name__} (model_name: {model_name})")
 
     system_prompt = generate_multiagent_expert_prompt(
-        expert_name, idx, total_experts, 1, False, "", "parallel", state["language"]
+        expert_name, idx, total_experts, 1, False, "", "parallel", state["language"],
+        tools=get_tools_list(config, "expert"),
     )
 
     # Experts are stateless across tasks: user messages + own tool chain only
@@ -764,7 +757,8 @@ async def _run_single_expert_async(
 
         # Build system prompt (same as parallel_expert_node)
         system_prompt = generate_multiagent_expert_prompt(
-            expert_name, idx, total_experts, 1, False, "", "parallel", language
+            expert_name, idx, total_experts, 1, False, "", "parallel", language,
+            tools=all_tools,
         )
         system_prompt = inject_behavior(system_prompt, additional_system_prompt or None)
 
@@ -950,6 +944,7 @@ def collab_expert_node(state: MultiAgentState, config):
         expert_name, idx, total_experts, state["current_round"],
         True, memory, "collaborative", state["language"],
         legacy_mode=legacy_mode,
+        tools=tools,
     )
     system_prompt = inject_behavior(system_prompt, state.get("additional_system_prompt", "") or None)
 

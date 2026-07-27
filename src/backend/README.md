@@ -64,7 +64,7 @@ Press `F5` or go to Run & Debug panel, select:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/health` | GET | Health check |
-| `/api/tools` | GET | List available tools with descriptions |
+| `/api/tools` | GET | Tool manifest: `name`, `description`, `kind` (`client`/`server`), `category` (`read`/`select`/`write`/`server`) |
 | `/` | GET | Serve frontend (after `yarn build`) |
 
 ## Architecture
@@ -97,7 +97,7 @@ src/backend/
 │   ├── web.py               # web_search (Tavily), fetch_url
 │   ├── calculator.py        # Safe math eval
 │   ├── date.py              # Current date/time
-│   └── word_tools.py        # 27 client-side Word tool schemas
+│   └── word_tools.py        # 28 client-side Word tool schemas (single source of truth)
 └── data/                    # Runtime: SQLite DBs, config.json
 ```
 
@@ -121,11 +121,19 @@ src/backend/
 - `calculate` - Safe math expression evaluation
 - `get_current_date` - Current date/time info
 
-**Client-side Word tools** (27 tools, executed in browser via Office.js):
-- **Read-only**: `get_selected_text`, `get_document_content`, `get_document_properties`, `get_range_info`, `get_table_info`, `find_text`, `find_and_select_text`, `select_between_text`, `select_text`, `go_to_bookmark`
-- **Write**: `insert_text`, `replace_selected_text`, `append_text`, `insert_paragraph`, `delete_text`, `search_and_replace`, `search_and_replace_in_selection`, `format_text`, `clear_formatting`, `set_paragraph_format`, `set_style`, `insert_table`, `insert_list`, `insert_page_break`, `insert_image`, `insert_bookmark`, `insert_content_control`
+**Client-side Word tools** (28 tools, executed in browser via Office.js):
 
-Tool categorization (`READ_ONLY_WORD_TOOLS` vs `WRITE_WORD_TOOLS`) is used in multiagent mode to restrict expert access.
+`tools/word_tools.py` is the single source of truth for every Word tool's name,
+description, schema and category. It splits them into `READ_TOOLS` (6),
+`SELECT_TOOLS` (4) and `WRITE_TOOLS` (18), and derives `CLIENT_TOOL_CATEGORY`
+from that split — do not maintain a second list anywhere. `tools/__init__.py`
+derives `READ_ONLY_WORD_TOOLS` / `WRITE_WORD_TOOLS` from it in turn, which is
+how multiagent mode restricts expert access (experts get read + select; the
+supervisor gets everything the user enabled).
+
+The frontend holds only the Office.js executors (`utils/wordTools.ts`) and
+fetches names and descriptions from `/api/tools`; a parity check there fails
+loudly if the two registries ever diverge.
 
 ### Execution Modes
 
@@ -138,7 +146,7 @@ Tool categorization (`READ_ONLY_WORD_TOOLS` vs `WRITE_WORD_TOOLS`) is used in mu
 **Multi-Agent** (`chat_multiagent.py`):
 - **Parallel mode**: Experts run concurrently, synthesizer combines results
 - **Collaborative mode**: Experts iterate with overseer evaluation over multiple rounds
-- Expert/supervisor tool separation (experts get read-only, supervisor gets all)
+- Expert/supervisor tool separation (experts get read + select tools, supervisor gets everything the user enabled)
 
 ### Conversation History
 

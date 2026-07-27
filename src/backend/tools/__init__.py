@@ -10,12 +10,12 @@ try:
     from .web import create_web_search_tool, fetch_url_tool
     from .calculator import calculate_tool
     from .date import get_current_date_tool
-    from .word_tools import CLIENT_TOOLS as _CLIENT_TOOL_LIST
+    from .word_tools import CLIENT_TOOLS as _CLIENT_TOOL_LIST, CLIENT_TOOL_CATEGORY
 except ImportError:
     from web import create_web_search_tool, fetch_url_tool
     from calculator import calculate_tool
     from date import get_current_date_tool
-    from word_tools import CLIENT_TOOLS as _CLIENT_TOOL_LIST
+    from word_tools import CLIENT_TOOLS as _CLIENT_TOOL_LIST, CLIENT_TOOL_CATEGORY
 
 # Server-side tools that don't require per-request credentials
 SERVER_TOOLS = {
@@ -30,31 +30,11 @@ CLIENT_TOOLS = {t.name: t for t in _CLIENT_TOOL_LIST}
 # Combined lookup for all known tools (excludes dynamic web_search)
 ALL_TOOLS = {**SERVER_TOOLS, **CLIENT_TOOLS}
 
-# Tool categorization for multiagent system
-# Read-Only Word Tools (safe for experts)
-READ_ONLY_WORD_TOOLS = {
-    'get_selected_text',
-    'get_document_content',
-    'get_document_properties',
-    'get_range_info',
-    'get_table_info',
-    'find_text',
-    'find_and_select_text',
-    'select_between_text',
-    'select_text',
-    'go_to_bookmark',
-}
-
-# Write Word Tools (supervisor only)
-WRITE_WORD_TOOLS = {
-    'insert_text', 'replace_selected_text', 'append_text',
-    'insert_paragraph', 'delete_text',
-    'search_and_replace', 'search_and_replace_in_selection',
-    'format_text', 'clear_formatting', 'set_font_name',
-    'insert_table', 'insert_list', 'insert_page_break', 'insert_image',
-    'insert_bookmark', 'insert_content_control',
-    'insert_comment',
-}
+# Tool categorization for multiagent system, derived from CLIENT_TOOL_CATEGORY
+# so the split can never drift from the actual tool definitions.
+READ_ONLY_WORD_TOOLS = {n for n, c in CLIENT_TOOL_CATEGORY.items() if c != "write"}
+WRITE_WORD_TOOLS = {n for n, c in CLIENT_TOOL_CATEGORY.items() if c == "write"}
+EXPERT_WORD_TOOLS = READ_ONLY_WORD_TOOLS  # decision: experts keep selection tools
 
 def _build_server_tools(tavily_api_key: str | None = None) -> dict:
     """Build server tools dict, including web_search only if Tavily key is available."""
@@ -106,4 +86,6 @@ __all__ = [
     "ALL_TOOLS",
     "READ_ONLY_WORD_TOOLS",
     "WRITE_WORD_TOOLS",
+    "EXPERT_WORD_TOOLS",
+    "CLIENT_TOOL_CATEGORY",
 ]
