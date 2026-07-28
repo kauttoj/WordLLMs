@@ -1597,6 +1597,7 @@ async function processChat(
       {
         ...currentConfig,
         recursionLimit: settings.agentMaxIterations,
+        enableTodos: settings.enableAgentTodos,
         llmTimeout: settings.llmTimeout,
         additionalSystemPrompt: additionalSystemPrompt.value || undefined,
         messages: finalMessages,

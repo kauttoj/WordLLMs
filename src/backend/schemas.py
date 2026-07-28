@@ -130,6 +130,7 @@ class AgentRequest(BaseModel):
     attachments: list[Attachment] = Field(default_factory=list)
     attachment_char_limit: int = Field(default=100000, ge=500)  # Per-file char limit
     tavily_api_key: str | None = None  # API key for Tavily web search (cross-provider)
+    enable_todos: bool = False  # Opt-in TodoWrite capability (single agent mode only)
 
 
 class ClientToolResult(BaseModel):
@@ -152,6 +153,7 @@ class AgentContinueRequest(BaseModel):
     recursion_limit: int = Field(default=120, ge=1)
     tavily_api_key: str | None = None
     tools: list[str] = Field(default_factory=list)
+    enable_todos: bool = False  # Opt-in TodoWrite capability (single agent mode only)
 
 
 class AgentSessionInfo(BaseModel):

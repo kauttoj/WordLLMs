@@ -27,7 +27,7 @@ const PROFILE_SETTING_KEYS = new Set<string>([
   // Common
   'api', 'localLanguage', 'replyLanguage', 'insertType',
   'useWordFormatting', 'useSelectedText', 'includeDocument',
-  'agentMaxIterations', 'autoSwitchModeAfterCollaborative',
+  'agentMaxIterations', 'enableAgentTodos', 'autoSwitchModeAfterCollaborative',
   'attachmentCharLimit', 'llmTimeout', 'tavilyApiKey',
   'costDisplayCurrency', 'costCurrencyRate',
   'defaultSystemPrompt', 'defaultPrompt',

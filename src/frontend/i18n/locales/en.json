@@ -74,6 +74,8 @@
   "emptyAPIKey": "Go to settings to set API key",
   "emptySubtitle": " Ask me anything",
   "emptyTitle": " How can I help you today?",
+  "enableAgentTodosLabel": "Agent Todo List",
+  "enableAgentTodosPlaceholder": "Let the agent plan and track multi-step tasks with a todo list. Adds some token overhead to every agent request.",
   "enableMarkdownLabel": "Render Markdown",
   "enableMarkdownPlaceholder": "Format messages with markdown (headings, bold, code blocks, etc.)",
   "failedToLoadHistory": "Failed to load conversation history",

@@ -267,6 +267,7 @@ async def agent_completion(request: AgentRequest):
                 conversation_store=conversation_store,
                 max_context_tokens=request.max_context_tokens,
                 llm_timeout=llm_timeout,
+                enable_todos=request.enable_todos,
             ):
                 yield {"event": event["event"], "data": json.dumps(event["data"])}
         except Exception as e:
@@ -306,6 +307,7 @@ async def agent_continue(request: AgentContinueRequest):
                 max_context_tokens=request.max_context_tokens,
                 llm_timeout=llm_timeout,
                 recursion_limit=request.recursion_limit,
+                enable_todos=request.enable_todos,
             ):
                 yield {"event": event["event"], "data": json.dumps(event["data"])}
 

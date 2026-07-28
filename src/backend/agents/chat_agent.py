@@ -2,12 +2,13 @@ import sys
 import re
 import uuid
 import json
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Annotated, Callable, Literal, List, TypedDict
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Annotated, Callable, Literal, List, NotRequired, TypedDict
 
 if TYPE_CHECKING:
     from ..conversation_store import ConversationStore
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain.agents.middleware.todo import write_todos, Todo
 from langgraph.graph import StateGraph, END, START
 from langgraph.graph.message import add_messages
 from langgraph.types import interrupt, Command
@@ -79,6 +80,7 @@ class ThinkingRouter:
 
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
+    todos: NotRequired[list[Todo]]
 
 # --- 2. Define Nodes ---
 
@@ -127,11 +129,17 @@ def tool_node(state: AgentState, config):
 
     last_msg = state["messages"][-1]
     results = []
+    state_updates: dict[str, Any] = {}
 
     print(f"[Graph:Tools] Processing {len(last_msg.tool_calls)} tool call(s)")
 
     for tc in last_msg.tool_calls:
-        if tc["name"] in server_tool_map:
+        if tc["name"] == "write_todos":
+            print(f"[Graph:Tools]   Todo Tool: {tc['name']}")
+            cmd = write_todos.invoke(tc)
+            state_updates["todos"] = cmd.update["todos"]
+            results.extend(cmd.update["messages"])
+        elif tc["name"] in server_tool_map:
             print(f"[Graph:Tools]   Server Tool: {tc['name']}")
             tool = server_tool_map[tc["name"]]
             try:
@@ -156,7 +164,7 @@ def tool_node(state: AgentState, config):
             results.append(ToolMessage(tool_call_id=tc["id"],
                 content=f"Error: Unknown tool '{tc['name']}'. Available tools: {', '.join(available)}"))
 
-    return {"messages": results}
+    return {"messages": results, **state_updates}
 
 # --- 3. Build Graph ---
 
@@ -578,6 +586,7 @@ async def stream_agent(
     thread_id: str | None = None,
     conversation_id: str | None = None,
     conversation_store: "ConversationStore | None" = None,
+    enable_todos: bool = False,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Entry point for new agent request.
 
@@ -590,6 +599,12 @@ async def stream_agent(
     # Log model info at entry point
     model_name = get_model_name(model)
     print(f"[stream_agent] Starting with model: {type(model).__name__} (model_name: {model_name})")
+
+    # Opt-in TodoWrite capability -- appended to the server tool list here so
+    # it propagates naturally into all_tools (system prompt), config (binding
+    # + execution), and all_tool_names (SSE tool_call filter) below.
+    if enable_todos:
+        tools = list(tools) + [write_todos]
 
     all_tools = list(tools) + list(client_tools or [])
 
@@ -609,7 +624,7 @@ async def stream_agent(
         # Determine system prompt
         system_content = None
         if language:
-            system_content = generate_agent_system_prompt(language, tools=all_tools)
+            system_content = generate_agent_system_prompt(language, tools=all_tools, enable_todos=enable_todos)
             conversation_store.set_system_prompt(conversation_id, system_content)
         elif messages and messages[0].role == "system":
             system_content = messages[0].content
@@ -640,7 +655,7 @@ async def stream_agent(
     else:
         # Fallback: no store (dev / standalone mode)
         session_id = thread_id or str(uuid.uuid4())
-        _gen = lambda lang: generate_agent_system_prompt(lang, tools=all_tools)
+        _gen = lambda lang: generate_agent_system_prompt(lang, tools=all_tools, enable_todos=enable_todos)
         messages_to_use = inject_system_prompt_if_needed(
             messages, language, _gen
         )
@@ -766,8 +781,15 @@ async def resume_agent(
     recursion_limit: int,
     filter_thinking: bool = True,
     conversation_store=None,
+    enable_todos: bool = False,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Entry point for resuming a paused agent."""
+
+    # Rebuild the same opt-in TodoWrite capability -- tools are rebuilt fresh
+    # from the request on every resume, so without this a follow-up
+    # write_todos call would hit the "Unknown tool" error path.
+    if enable_todos:
+        server_tools = list(server_tools) + [write_todos]
 
     config = {
         "configurable": {

@@ -9,6 +9,8 @@ from typing import Literal
 import random
 import re
 
+from langchain.agents.middleware.todo import WRITE_TODOS_SYSTEM_PROMPT
+
 try:
     from ..tools import WRITE_WORD_TOOLS
 except ImportError:
@@ -157,12 +159,14 @@ Adapt your response to what the user needs:
 Communicate in {language}."""
 
 
-def generate_agent_system_prompt(language: str, tools: list | None = None) -> str:
+def generate_agent_system_prompt(language: str, tools: list | None = None, enable_todos: bool = False) -> str:
     """Generate default agent mode system prompt.
 
     Args:
         language: Target language for communication
         tools: Tool objects bound to this agent (used for listing and guidance)
+        enable_todos: When True, append the write_todos middleware's own
+            system prompt section verbatim (opt-in TodoWrite capability)
 
     Returns:
         System prompt string with agent instructions
@@ -171,6 +175,9 @@ def generate_agent_system_prompt(language: str, tools: list | None = None) -> st
     tool_sections = _build_tool_sections(tools)
     tool_names = {t.name for t in tools}
     has_write = bool(tool_names & WRITE_WORD_TOOLS)
+    # Join non-empty parts with a single blank line so an empty tool_sections
+    # (no tools bound) never leaves a stray double-blank-line gap.
+    tool_sections = "\n\n".join(s for s in [tool_sections, WRITE_TODOS_SYSTEM_PROMPT if enable_todos else ""] if s)
 
     if has_write:
         return f"""You are an AI assistant working in Microsoft Word with tools access.

@@ -51,6 +51,8 @@
   "emptyAPIKey": "请先去设置API key",
   "emptySubtitle": "在文档中选择文本，向我提问",
   "emptyTitle": "今天我能帮您什么？",
+  "enableAgentTodosLabel": "助手待办清单",
+  "enableAgentTodosPlaceholder": "让助手使用待办清单来规划和跟踪多步骤任务。会为每次助手请求增加少量令牌开销。",
   "failedToLoadHistory": "加载对话历史失败",
   "failedToProcessAction": "处理操作失败",
   "failedToResponse": "获取响应失败",

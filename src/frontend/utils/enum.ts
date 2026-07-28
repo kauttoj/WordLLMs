@@ -11,6 +11,7 @@ export const localStorageKey = {
   agentMaxIterations: 'agentMaxIterations',
   enableMarkdown: 'enableMarkdown',
   horizontalToolCalls: 'horizontalToolCalls',
+  enableAgentTodos: 'enableAgentTodos',
   autoSwitchModeAfterCollaborative: 'autoSwitchModeAfterCollaborative',
   attachmentCharLimit: 'attachmentCharLimit',
   llmTimeout: 'llmTimeout',

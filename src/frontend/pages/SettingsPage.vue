@@ -248,6 +248,24 @@
             <SettingCard>
               <div class="flex items-center justify-between gap-3 p-2">
                 <div class="flex flex-col gap-1">
+                  <label for="check-enableAgentTodos" class="cursor-pointer text-xs font-semibold text-secondary">
+                    {{ t('enableAgentTodosLabel') }}
+                  </label>
+                  <span class="text-xs text-secondary/70">
+                    {{ t('enableAgentTodosPlaceholder') }}
+                  </span>
+                </div>
+                <input
+                  id="check-enableAgentTodos"
+                  v-model="settingForm.enableAgentTodos"
+                  type="checkbox"
+                  class="h-4 w-4 cursor-pointer"
+                />
+              </div>
+            </SettingCard>
+            <SettingCard>
+              <div class="flex items-center justify-between gap-3 p-2">
+                <div class="flex flex-col gap-1">
                   <label for="check-autoSwitchModeAfterCollaborative" class="cursor-pointer text-xs font-semibold text-secondary">
                     {{ t('autoSwitchModeAfterCollaborativeLabel') }}
                   </label>

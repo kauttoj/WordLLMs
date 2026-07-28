@@ -60,6 +60,7 @@ interface AgentRequestBody extends ChatRequestBody {
   thread_id?: string
   conversation_id?: string
   recursion_limit: number
+  enable_todos?: boolean
   tavily_api_key?: string
 }
 
@@ -75,6 +76,7 @@ interface AgentContinueRequestBody {
   llm_timeout: number
   filter_thinking?: boolean
   recursion_limit: number
+  enable_todos?: boolean
   tavily_api_key?: string
   tools: string[]
 }
@@ -500,6 +502,7 @@ export async function streamAgentFromBackend(options: AgentOptions, language?: s
     thread_id: options.threadId,
     conversation_id: options.conversationId,
     recursion_limit: options.recursionLimit,
+    enable_todos: options.enableTodos ?? false,
     tavily_api_key: localStorage.getItem('tavilyApiKey') || undefined,
   }
 
@@ -609,6 +612,7 @@ export async function streamAgentFromBackend(options: AgentOptions, language?: s
         llm_timeout: agentBody.llm_timeout,
         filter_thinking: agentBody.filter_thinking,
         recursion_limit: agentBody.recursion_limit,
+        enable_todos: agentBody.enable_todos,
         tavily_api_key: agentBody.tavily_api_key,
         tools: agentBody.tools,
       }
