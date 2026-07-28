@@ -170,6 +170,29 @@ def compute_cost(
         return None
 
 
+def unknown_cost(model: Any) -> dict[str, Any]:
+    """A no-price cost payload, so a completed response always renders something.
+
+    ``compute_cost`` returns None when no tokens can be determined; the SSE
+    'done' emitters fall back to this so the UI shows "-" rather than nothing.
+    Never raises. Not used by aggregate_costs, which must keep ignoring
+    usage-less calls.
+    """
+    try:
+        bare_model = get_model_name(model)
+        provider = get_provider(model)
+    except Exception:
+        bare_model, provider = "unknown", "unknown"
+    return {
+        "amount": None,
+        "currency": "USD",
+        "model": bare_model,
+        "provider": provider,
+        "source": "unknown",
+        "estimated": False,
+    }
+
+
 def aggregate_costs(parts: list[dict[str, Any] | None]) -> dict[str, Any] | None:
     """Sum per-call cost dicts into one response cost (for multiagent).
 

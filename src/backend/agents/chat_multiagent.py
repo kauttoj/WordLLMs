@@ -1025,7 +1025,11 @@ def collab_expert_node(state: MultiAgentState, config):
             formatter_model_name = get_model_name(formatter_model_obj)
             print(f"[MultiAgent:CollabExpert]   Formatter: {formatter_model_obj.__class__.__name__} ({formatter_model_name})")
 
-            structured_formatter = with_structured_output_compat(formatter_model_obj, ExpertOutput)
+            # include_raw=True is required to recover usage_metadata from the raw AIMessage
+            # for cost accounting — do not "simplify" this back to a bare parsed object.
+            structured_formatter = with_structured_output_compat(
+                formatter_model_obj, ExpertOutput, include_raw=True
+            )
             format_messages = [HumanMessage(content=(
                 f"Extract the public response and private memory from the text below.\n"
                 f"- public_response: The expert's analysis and recommendations (visible to others)\n"
@@ -1033,9 +1037,18 @@ def collab_expert_node(state: MultiAgentState, config):
                 f"---\n\n"
                 f"{content_text}\n"
             ))]
-            output = invoke_with_timeout(
+            formatted = invoke_with_timeout(
                 structured_formatter, format_messages, get_llm_timeout(config), label=f"{expert_name}_formatter"
             )
+            _record_cost(config, formatter_model_obj, formatted["raw"])
+            output = formatted["parsed"]
+            if output is None:
+                raise ValueError(
+                    f"{expert_name} formatter model failed to parse a valid ExpertOutput "
+                    f"(parsing_error={formatted['parsing_error']!r}). Configure a different "
+                    f"Formatter Model in Settings -> Multi-Agent. Raw response preview: "
+                    f"{extract_text_from_content(formatted['raw'].content)[:300]}"
+                )
             print(f"[MultiAgent:CollabExpert]   Formatter extracted - Public: {output.public_response[:200]}...")
             print(f"[MultiAgent:CollabExpert]   Formatter extracted - Memory: {output.private_memory[:100]}...")
         else:
@@ -1148,8 +1161,18 @@ def overseer_node(state: MultiAgentState, config):
     messages = trim_to_fit(messages, model_name, max_ctx)
 
     print(f"[MultiAgent:Overseer]   Invoking decider...")
-    decider = with_structured_output_compat(model, OverseerDecision)
-    output: OverseerDecision = invoke_with_timeout(decider, messages, get_llm_timeout(config), label="Overseer")
+    # include_raw=True is required to recover usage_metadata from the raw AIMessage
+    # for cost accounting — do not "simplify" this back to a bare parsed object.
+    decider = with_structured_output_compat(model, OverseerDecision, include_raw=True)
+    decided = invoke_with_timeout(decider, messages, get_llm_timeout(config), label="Overseer")
+    _record_cost(config, model, decided["raw"])
+    output: OverseerDecision = decided["parsed"]
+    if output is None:
+        raise ValueError(
+            f"Overseer model failed to parse a valid OverseerDecision "
+            f"(parsing_error={decided['parsing_error']!r}). Raw response preview: "
+            f"{extract_text_from_content(decided['raw'].content)[:300]}"
+        )
 
     print(f"[MultiAgent:Overseer]   Decision: {output.decision}")
     print(f"[MultiAgent:Overseer]   Reasoning: {output.reasoning_feedback[:100]}...")

@@ -148,17 +148,19 @@ def bind_tools_compat(
     return model.bind_tools(tools, **kwargs)
 
 
-def with_structured_output_compat(model: BaseChatModel, schema: Any):
+def with_structured_output_compat(model: BaseChatModel, schema: Any, include_raw: bool = False):
     """Structured output binding that avoids non-OpenAI `strict` payloads.
 
     ChatLiteLLM.with_structured_output(method="json_schema") inserts
     response_format.json_schema.strict by default. Some providers reject that
     nested field, so non-OpenAI LiteLLM models use function-calling structured
-    output instead.
+    output instead. When `include_raw=True`, the returned runnable yields a
+    dict of `{"raw", "parsed", "parsing_error"}` so the caller can recover
+    token usage from the raw AIMessage for cost accounting.
     """
     if _is_litellm_model(model) and get_provider(model) != "openai":
-        return model.with_structured_output(schema, method="function_calling")
-    return model.with_structured_output(schema)
+        return model.with_structured_output(schema, method="function_calling", include_raw=include_raw)
+    return model.with_structured_output(schema, include_raw=include_raw)
 
 
 def _tag_legacy(model: BaseChatModel, provider: str, raw_model: str) -> BaseChatModel:

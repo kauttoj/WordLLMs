@@ -105,6 +105,7 @@ def agent_node(state: AgentState, config):
 
     llm_timeout = config["configurable"]["llm_timeout"]
     response = invoke_with_timeout(model_with_tools, trimmed, llm_timeout, label="Agent")
+    _record_usage(config, response)
 
     if response.tool_calls:
         print(f"[Graph:Agent] Response has {len(response.tool_calls)} tool call(s): {[tc['name'] for tc in response.tool_calls]}")
@@ -197,6 +198,25 @@ _emitted_ai_msg_id: dict[str, Any] = {}  # session_id → last emitted AIMessage
 _session_usage: dict[str, dict[str, int]] = {}
 
 
+def _record_usage(config, response) -> None:
+    """Accumulate one agent LLM call's tokens into the per-session total.
+
+    Read straight off the response object rather than from graph events:
+    invoke_with_timeout runs .invoke() in a worker thread, and relying on
+    on_chat_model_end made cost capture silently fail. Keyed by session so the
+    total survives resume cycles after client-tool interrupts.
+    """
+    session_id = config["configurable"].get("thread_id")
+    if not session_id:
+        return
+    in_tok, out_tok = pricing.usage_from_message(response)
+    if not in_tok and not out_tok:
+        return
+    acc = _session_usage.setdefault(session_id, {})
+    acc["input_tokens"] = acc.get("input_tokens", 0) + (in_tok or 0)
+    acc["output_tokens"] = acc.get("output_tokens", 0) + (out_tok or 0)
+
+
 def _mark_ai_msg_emitted(session_id: str, snapshot) -> None:
     """Record the latest AIMessage's id so _emit_text_if_new skips it next time."""
     for msg in reversed(snapshot.values.get("messages", [])):
@@ -222,19 +242,22 @@ def _emit_text_if_new(session_id: str, snapshot, filter_thinking: bool):
     return None
 
 
+def _last_ai_text(messages) -> str:
+    """Text of the final tool-call-free AIMessage, for token estimation fallback."""
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and not msg.tool_calls:
+            return extract_text_from_content(msg.content) or ""
+    return ""
+
+
 # --- 4. Helper: Stream Processor ---
 
 async def _process_graph_stream(
     event_stream,
     think_router: ThinkingRouter,
     valid_tool_names: set[str] | None = None,
-    usage_acc: dict[str, int] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
-    """Consumes graph events and yields SSE-compatible chunks.
-
-    When ``usage_acc`` is provided, input/output token counts from every agent
-    LLM call are summed into it (for cost computation at the done event).
-    """
+    """Consumes graph events and yields SSE-compatible chunks."""
 
     text_chars = 0  # accumulate text chunk sizes for summary logging
     accumulated_text = ""  # accumulate full text for preview logging
@@ -262,11 +285,6 @@ async def _process_graph_stream(
             print(f"[GraphStream] agent text done ({text_chars} chars, preview: {preview}...)")
             text_chars = 0
             accumulated_text = ""
-            if usage_acc is not None:
-                um = getattr(event["data"].get("output"), "usage_metadata", None)
-                if um:
-                    usage_acc["input_tokens"] = usage_acc.get("input_tokens", 0) + (um.get("input_tokens") or 0)
-                    usage_acc["output_tokens"] = usage_acc.get("output_tokens", 0) + (um.get("output_tokens") or 0)
 
         # 2. Handle Server Tool Execution Events (Optional: UI feedback)
         elif evt_type == "on_tool_start":
@@ -687,9 +705,8 @@ async def stream_agent(
             version="v2"
         )
 
-        usage_acc = _session_usage.setdefault(session_id, {})
         text_emitted = False
-        async for sse_event in _process_graph_stream(event_stream, think_router, all_tool_names, usage_acc):
+        async for sse_event in _process_graph_stream(event_stream, think_router, all_tool_names):
             if sse_event.get("event") == "text":
                 text_emitted = True
             yield sse_event
@@ -753,11 +770,14 @@ async def stream_agent(
                 conversation_store.unregister_thread(session_id)
             _emitted_ai_msg_id.pop(session_id, None)
             usage = _session_usage.pop(session_id, {})
+            final_msgs = snapshot.values.get("messages", [])
             cost = pricing.compute_cost(
                 model,
                 input_tokens=usage.get("input_tokens"),
                 output_tokens=usage.get("output_tokens"),
-            )
+                lc_messages=final_msgs,
+                output_text=_last_ai_text(final_msgs),
+            ) or pricing.unknown_cost(model)
             yield {"event": "done", "data": {"finish_reason": "stop", "cost": cost}}
 
     except Exception as e:
@@ -814,9 +834,8 @@ async def resume_agent(
             version="v2"
         )
 
-        usage_acc = _session_usage.setdefault(session_id, {})
         text_emitted = False
-        async for sse_event in _process_graph_stream(event_stream, think_router, all_tool_names, usage_acc):
+        async for sse_event in _process_graph_stream(event_stream, think_router, all_tool_names):
             if sse_event.get("event") == "text":
                 text_emitted = True
             yield sse_event
@@ -882,11 +901,14 @@ async def resume_agent(
                     conversation_store.unregister_thread(session_id)
             _emitted_ai_msg_id.pop(session_id, None)
             usage = _session_usage.pop(session_id, {})
+            final_msgs = snapshot.values.get("messages", [])
             cost = pricing.compute_cost(
                 model,
                 input_tokens=usage.get("input_tokens"),
                 output_tokens=usage.get("output_tokens"),
-            )
+                lc_messages=final_msgs,
+                output_text=_last_ai_text(final_msgs),
+            ) or pricing.unknown_cost(model)
             yield {"event": "done", "data": {"finish_reason": "stop", "cost": cost}}
 
     except Exception as e:

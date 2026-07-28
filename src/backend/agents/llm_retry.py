@@ -9,6 +9,7 @@ Provides:
 
 import asyncio
 import concurrent.futures
+import contextvars
 import logging
 from typing import Any, Sequence
 
@@ -65,8 +66,13 @@ def invoke_with_timeout(
 
     Retry is NOT handled here — use LangGraph RetryPolicy on the node instead.
     """
+    # A bare executor.submit() does NOT copy contextvars into the worker
+    # thread, so LangChain's callback/config contextvar is missing there --
+    # this silently disables callbacks and tracing for every graph LLM call
+    # (e.g. on_chat_model_end never fires, breaking astream_events consumers).
+    ctx = contextvars.copy_context()
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(model_or_chain.invoke, list(messages))
+    future = executor.submit(ctx.run, model_or_chain.invoke, list(messages))
     try:
         result = future.result(timeout=timeout_seconds)
         executor.shutdown(wait=False)
