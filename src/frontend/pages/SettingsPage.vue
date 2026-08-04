@@ -372,7 +372,7 @@
                   :placeholder="settingForm[item as SettingNames]"
                 />
               </SettingCard>
-              <SettingCard v-for="item in getApiEnumSettings(platform)" :key="item">
+              <SettingCard v-for="item in getApiEnumSettings(platform)" v-show="!isEffortHidden(item)" :key="item">
                 <SingleSelect
                   v-model="settingForm[item as SettingNames]"
                   :key-list="getEnumSettingOptions(item)"
@@ -380,6 +380,12 @@
                   :fronticon="false"
                   :placeholder="settingForm[item as SettingNames] || t(getPlaceholder(item))"
                 />
+                <div
+                  v-if="getEffortNotice(item)"
+                  class="mt-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-700 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
+                >
+                  {{ getEffortNotice(item) }}
+                </div>
               </SettingCard>
               <SettingCard v-for="item in getApiNumSettings(platform)" :key="item">
                 <CustomInput
@@ -828,6 +834,7 @@ import {
   type McpServerInfo,
   type McpToolInfo,
 } from '@/api/backend'
+import { CONSERVATIVE_EFFORTS, fetchEffortCapability, type ModelCapability } from '@/api/modelCapabilities'
 import {
   activeStreams,
   browseProfileDir,
@@ -1025,8 +1032,91 @@ const getApiEnumSettings = (platform: string) => {
   )
 }
 
+// --- Reasoning effort capability (GET /api/model-capabilities) ---
+//
+// Only these platforms carry a `<platform>ReasoningEffort` setting (Ollama /
+// LMStudio deliberately have none — see plan's non-goals). Keyed by platform
+// (not by model), so switching models on the same platform re-fetches.
+const EFFORT_PLATFORMS = ['openai', 'anthropic', 'azure', 'gemini', 'togetherai']
+const EFFORT_TIER_ORDER = ['none', 'low', 'medium', 'high', 'xhigh', 'max']
+
+// null after a fetch failure — a missing entry (undefined) just means "not
+// fetched yet", so the dropdown quietly shows the conservative list rather
+// than an error banner during the brief window before the first fetch lands.
+const modelCapabilities = ref<Record<string, ModelCapability | null>>({})
+
+const effortPlatformFromItem = (item: string): string => item.replace(/ReasoningEffort$/, '')
+
+// Snap a stale stored value (e.g. `max` saved while on Sonnet, model switched
+// to Haiku which caps at `high`) to the nearest tier the new ladder actually
+// supports, so the form never holds a value the dropdown can't render.
+const coerceEffortValue = (platform: string, capability: ModelCapability) => {
+  const key = `${platform}ReasoningEffort` as SettingNames
+  const ladder = capability.supported_efforts
+  if (ladder.length === 0) return // control is hidden entirely; nothing to coerce
+  const current = settingForm.value[key] as string
+  if (ladder.includes(current)) return
+
+  // Nearest LOWER supported tier first (so `max` -> `high`), then nearest
+  // higher, then the model's default. This deliberately mirrors the backend
+  // clamp in providers/effort.py, so the value shown here is the value that
+  // will actually be sent.
+  const idx = EFFORT_TIER_ORDER.indexOf(current)
+  let next = ''
+  if (idx !== -1) {
+    for (let i = idx - 1; i >= 0 && !next; i--) {
+      if (ladder.includes(EFFORT_TIER_ORDER[i])) next = EFFORT_TIER_ORDER[i]
+    }
+    for (let i = idx + 1; i < EFFORT_TIER_ORDER.length && !next; i++) {
+      if (ladder.includes(EFFORT_TIER_ORDER[i])) next = EFFORT_TIER_ORDER[i]
+    }
+  }
+  if (!next) next = ladder.includes(capability.default_effort) ? capability.default_effort : ladder[0]
+  ;(settingForm.value as any)[key] = next
+}
+
+// A failed fetch must degrade to the conservative ladder + a notice — it must
+// NOT throw out of a watcher/lifecycle hook and break the rest of Settings.
+const loadEffortCapability = async (platform: string) => {
+  const model = (settingForm.value[`${platform}ModelSelect` as SettingNames] as string) || ''
+  if (!model) return
+  try {
+    const capability = await fetchEffortCapability(platform, model)
+    modelCapabilities.value[platform] = capability
+    coerceEffortValue(platform, capability)
+  } catch (error) {
+    console.error(`[Settings] Failed to load model capabilities for ${platform}:`, error)
+    modelCapabilities.value[platform] = null
+  }
+}
+
 const getEnumSettingOptions = (item: string): string[] => {
+  if (item.endsWith('ReasoningEffort')) {
+    const capability = modelCapabilities.value[effortPlatformFromItem(item)]
+    return capability?.supported_efforts.length ? capability.supported_efforts : CONSERVATIVE_EFFORTS
+  }
   return (settingPreset[item as SettingNames] as any).optionList || []
+}
+
+// Hides the effort dropdown entirely when the confirmed ladder is empty
+// (model has no reasoning tiers at all, e.g. gpt-4.1).
+const isEffortHidden = (item: string): boolean => {
+  if (!item.endsWith('ReasoningEffort')) return false
+  const capability = modelCapabilities.value[effortPlatformFromItem(item)]
+  return capability?.supported_efforts.length === 0
+}
+
+// Notice shown under the dropdown when we couldn't confirm the model's real
+// capabilities (inferred/fallback source, or a fetch failure), or when the
+// user's hand-edited model_efforts.json has a malformed entry for this model.
+const getEffortNotice = (item: string): string => {
+  if (!item.endsWith('ReasoningEffort')) return ''
+  const capability = modelCapabilities.value[effortPlatformFromItem(item)]
+  if (capability === null) return t('modelCapabilitiesNotice')
+  if (!capability) return ''
+  if (capability.warnings.length) return capability.warnings.join(' ')
+  if (capability.source === 'inferred' || capability.source === 'fallback') return t('modelCapabilitiesNotice')
+  return ''
 }
 
 const getCustomModelsKey = (platform: string): SettingNames | null => {
@@ -1493,11 +1583,25 @@ const browseDbFile = async () => {
   }
 }
 
+// Model values change discretely (custom models are added via a button then
+// selected), so no debounce is needed on these watchers.
+EFFORT_PLATFORMS.forEach(platform => {
+  watch(
+    () => settingForm.value[`${platform}ModelSelect` as SettingNames],
+    () => loadEffortCapability(platform),
+  )
+})
+watch(settingsProvider, newPlatform => {
+  if (EFFORT_PLATFORMS.includes(newPlatform)) loadEffortCapability(newPlatform)
+})
+
 onBeforeMount(async () => {
   loadToolPreferences()
   loadMcpToolPreferences()
   loadMultiAgentConfig()
   loadMcpServers()
+
+  if (EFFORT_PLATFORMS.includes(settingsProvider.value)) loadEffortCapability(settingsProvider.value)
 
   addWatch()
 

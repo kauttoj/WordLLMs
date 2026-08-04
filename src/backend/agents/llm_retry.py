@@ -45,7 +45,7 @@ LLM_RETRY_POLICY = RetryPolicy(
     initial_interval=1.0,
     backoff_factor=1.0,
     max_interval=2.0,
-    max_attempts=3,
+    max_attempts=4,  # 1 initial attempt + 3 retries
     jitter=False,
     retry_on=retry_on_timeout,
 )
@@ -91,19 +91,24 @@ async def ainvoke_with_timeout(
     model: Any,
     messages: Sequence[BaseMessage],
     timeout_seconds: int,
-    max_retries: int = 2,
+    max_retries: int = 3,
     label: str = "LLM",
 ) -> Any:
     """Async ainvoke() with hard timeout and tenacity retry.
 
-    For use outside LangGraph (e.g. stream_chat, chat_complete).
+    For use outside LangGraph (e.g. stream_chat, chat_complete, and the
+    out-of-graph parallel multiagent experts). Retries on timeouts AND on
+    the same transient-failure predicate LangGraph's LLM_RETRY_POLICY uses
+    (retry_on_timeout) -- e.g. litellm.InternalServerError from an upstream
+    5xx, which langchain_litellm's own internal retry decorator does not
+    cover regardless of the model's `max_retries` setting.
     """
     total_attempts = max_retries + 1
 
     async for attempt in AsyncRetrying(
         stop=stop_after_attempt(total_attempts),
         wait=wait_fixed(1),
-        retry=retry_if_exception(lambda exc: isinstance(exc, TimeoutError)),
+        retry=retry_if_exception(retry_on_timeout),
         reraise=True,
     ):
         with attempt:
@@ -131,12 +136,16 @@ async def astream_with_timeout(
     model: Any,
     messages: Sequence[BaseMessage],
     timeout_seconds: int,
-    max_retries: int = 2,
+    max_retries: int = 3,
     label: str = "LLM",
 ):
     """Async stream with timeout on each chunk and retry.
 
-    Only retries if zero chunks have been yielded (can't retry mid-stream).
+    Retries on timeouts and on transient upstream failures (per
+    retry_on_timeout, e.g. litellm.InternalServerError) as long as zero
+    chunks have been yielded yet -- once output has started, a mid-stream
+    failure can't be retried without duplicating content, so it's raised
+    immediately regardless of type.
     """
     total_attempts = max_retries + 1
     last_exception = None
@@ -162,18 +171,16 @@ async def astream_with_timeout(
                         f"[{label}] Stream timed out after {timeout_seconds}s "
                         f"({chunks_yielded} chunks received)"
                     )
-        except TimeoutError as exc:
-            if chunks_yielded > 0:
-                # Already yielded data — cannot retry mid-stream
+        except Exception as exc:
+            if chunks_yielded > 0 or not retry_on_timeout(exc):
+                # Already yielded data, or a non-retryable error — no retry
                 raise
             last_exception = exc
             logger.warning(
-                f"[{label}] astream() timed out before first chunk "
-                f"(attempt {attempt_num}/{total_attempts})"
+                f"[{label}] {type(exc).__name__} before first chunk "
+                f"(attempt {attempt_num}/{total_attempts}): {exc}"
             )
             if attempt_num < total_attempts:
                 await asyncio.sleep(1)
-        except Exception:
-            raise  # Non-timeout errors are never retried
 
     raise last_exception  # type: ignore[misc]

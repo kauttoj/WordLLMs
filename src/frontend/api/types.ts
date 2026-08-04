@@ -15,7 +15,7 @@ export interface BaseChatCompletionOptions {
   threadId: string
   additionalSystemPrompt?: string // Persistent behavioral instructions appended to system prompt
   conversationId?: string // Enables unified cross-mode conversation history
-  attachments?: { filename: string; data: string }[]
+  attachments?: { id: string; filename: string }[]
   attachmentCharLimit: number
   documentContent?: string // Full Word document text, attached fresh every turn (chat mode only)
   onStream: (text: string, speaker?: string, forceNew?: boolean) => void
@@ -75,6 +75,7 @@ export interface TogetherAIOptions extends BaseChatCompletionOptions {
   provider: 'togetherai'
   togetheraiModel: string
   togetheraiAPIKey: string
+  reasoningEffort?: string
 }
 
 export type ProviderOptions =
@@ -172,10 +173,10 @@ export interface MultiAgentOptions extends BaseChatCompletionOptions {
   language?: string
   tools?: string[]
   mcpTools?: string[] // MCP tool names (already in backend format)
-  onMessage?: (content: string, speaker?: string, round?: number) => void
+  onMessage?: (content: string, speaker?: string, round?: number, cost?: CostInfo) => void
   onToolCall?: (toolName: string, args: any, speaker?: string) => void
   onToolResult?: (toolName: string, result: string, speaker?: string) => void
-  onOverseerDecision?: (decision: string) => void
+  onOverseerDecision?: (decision: string, cost?: CostInfo) => void
 }
 
 // MultiAgent configuration for UI settings
@@ -185,22 +186,29 @@ export interface MultiAgentConfig {
   maxRounds: number
   expertFullHistory?: boolean
   useExpertParallelization?: boolean
+  // `reasoningEffort` is a per-role override. Absent or empty means "inherit the
+  // provider's own settings sheet" — the tier that single-agent mode uses for
+  // that provider. An explicit value wins, so an expert can run at a different
+  // tier than the model selected on the provider sheet.
   experts: {
     id: string
     name: string
     provider: supportedProviders
     model: string
+    reasoningEffort?: string
   }[]
   overseer: {
     id: string
     name: string
     provider: supportedProviders
     model: string
+    reasoningEffort?: string
   }
   formatter?: {
     id: string
     provider: supportedProviders
     model: string
+    reasoningEffort?: string
   }
 }
 

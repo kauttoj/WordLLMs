@@ -78,6 +78,7 @@ export const localStorageKey = {
   anthropicMaxContextTokens: 'anthropicMaxContextTokens',
   // togetherai api
   togetheraiAPIKey: 'togetheraiAPIKey',
+  togetheraiReasoningEffort: 'togetheraiReasoningEffort',
   togetheraiTemperature: 'togetheraiTemperature',
   togetheraiMaxContextTokens: 'togetheraiMaxContextTokens',
   togetheraiModel: 'togetheraiModel',

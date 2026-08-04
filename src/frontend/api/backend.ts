@@ -33,8 +33,8 @@ interface BackendCredentials {
 }
 
 interface FileAttachment {
+  id: string
   filename: string
-  data: string // base64
 }
 
 interface ChatRequestBody {
@@ -178,18 +178,19 @@ export interface CostInfo {
   provider: string
   source: 'auto' | 'manual' | 'unknown'
   estimated: boolean
+  effort?: string | null
 }
 
 interface ParseSSEOptions {
   onText: (content: string, speaker?: string) => void
-  onMessage?: (content: string, speaker?: string, round?: number) => void
+  onMessage?: (content: string, speaker?: string, round?: number, cost?: CostInfo) => void
   onToolCall?: (name: string, args: any, speaker?: string) => void
   onToolResult?: (name: string, result: string, speaker?: string) => void
   onClientToolCall?: (sessionId: string, toolCalls: ClientToolCall[]) => void
   onError?: (error: string) => void
   onWarning?: (warnings: TruncationWarning[]) => void
   onNewBlock?: (speaker?: string) => void
-  onOverseerDecision?: (decision: string) => void
+  onOverseerDecision?: (decision: string, cost?: CostInfo) => void
   onCost?: (cost: CostInfo) => void
   abortSignal?: AbortSignal
 }
@@ -294,12 +295,12 @@ async function parseSSEStream(response: Response, options: ParseSSEOptions): Pro
               case 'message':
                 // Complete message event (multiagent mode) — NOT accumulated into fullContent
                 if (data.content && options.onMessage) {
-                  options.onMessage(data.content, data.speaker, data.round)
+                  options.onMessage(data.content, data.speaker, data.round, data.cost)
                 }
                 break
               case 'overseer_decision':
                 if (options.onOverseerDecision) {
-                  options.onOverseerDecision(data.decision)
+                  options.onOverseerDecision(data.decision, data.cost)
                 }
                 break
               case 'new_block':
@@ -372,6 +373,41 @@ function formatTruncationWarning(warnings: TruncationWarning[]): string {
 
 function handleTruncationWarning(warnings: TruncationWarning[]) {
   messageUtil.warning(formatTruncationWarning(warnings), 8000)
+}
+
+// ---------------------------------------------------------------------------
+// Attachment upload — base64 crosses the wire exactly once, at upload time.
+// Everything downstream (thread records, request bodies) carries {id, filename}.
+// ---------------------------------------------------------------------------
+
+export interface UploadedAttachment {
+  id: string
+  filename: string
+  kind: string
+  chars: number
+}
+
+export async function uploadAttachments(
+  conversationId: string,
+  files: { filename: string; data: string }[],
+): Promise<UploadedAttachment[]> {
+  const backendUrl = getBackendUrl()
+  const response = await fetch(`${backendUrl}/api/attachments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversation_id: conversationId, files }),
+  })
+  if (!response.ok) {
+    let detail = await response.text()
+    try {
+      detail = JSON.parse(detail).detail ?? detail
+    } catch {
+      // Not JSON — the raw body is the best detail available.
+    }
+    throw new Error(detail)
+  }
+  const data = await response.json()
+  return data.attachments ?? []
 }
 
 // ---------------------------------------------------------------------------
@@ -820,8 +856,8 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
           console.error('[MultiAgent] Unexpected text event received - multiagent should only emit message events')
           options.onStream(fullContent, speaker)
         },
-        onMessage: (content: string, speaker?: string, round?: number) => {
-          options.onMessage?.(content, speaker, round)
+        onMessage: (content: string, speaker?: string, round?: number, cost?: CostInfo) => {
+          options.onMessage?.(content, speaker, round, cost)
         },
         onWarning: handleTruncationWarning,
         onToolCall: (name: string, args: any, speaker?: string) => {
@@ -834,8 +870,8 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
           sessionId = sid
           pendingClientCalls = toolCalls
         },
-        onOverseerDecision: (decision: string) => {
-          options.onOverseerDecision?.(decision)
+        onOverseerDecision: (decision: string, cost?: CostInfo) => {
+          options.onOverseerDecision?.(decision, cost)
         },
         onError: error => {
           if (error.includes('recursion') || error.includes('RecursionError')) {
@@ -844,6 +880,9 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
             options.errorIssue.value = error
           }
         },
+        // Multiagent's "done" event no longer carries a summed cost — every
+        // expert/overseer/synthesizer bubble now prices itself via onMessage/
+        // onOverseerDecision above. This guard just no-ops when cost is absent.
         onCost: options.onCost,
         abortSignal: options.abortSignal,
       })
@@ -903,7 +942,7 @@ export interface SerializedMessage {
   timestamp: number
   metadata?: BotMetadata
   toolName?: string
-  attachments?: { filename: string }[]
+  attachments?: { id: string; filename: string; available?: boolean }[]
   cost?: CostInfo // Response cost, shown on the last bubble; persisted across reloads
 }
 
@@ -968,12 +1007,24 @@ export async function deleteThreadFromBackend(threadId: string): Promise<boolean
 // Conversation edit / fork
 // ---------------------------------------------------------------------------
 
-export async function editConversationMessage(conversationId: string, turn: number, newContent: string): Promise<void> {
+export async function editConversationMessage(
+  conversationId: string,
+  turn: number,
+  newContent: string,
+  attachments?: { id: string; filename: string }[],
+  attachmentCharLimit?: number,
+): Promise<void> {
   const backendUrl = getBackendUrl()
   const response = await fetch(`${backendUrl}/api/conversation/edit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ conversation_id: conversationId, turn, new_content: newContent }),
+    body: JSON.stringify({
+      conversation_id: conversationId,
+      turn,
+      new_content: newContent,
+      attachments,
+      attachment_char_limit: attachmentCharLimit,
+    }),
   })
   if (!response.ok) {
     const errorText = await response.text()

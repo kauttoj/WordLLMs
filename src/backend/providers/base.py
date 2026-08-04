@@ -7,6 +7,11 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain_litellm import ChatLiteLLM
 
+try:
+    from .effort import resolve_effort, gemini_thinking_budget, display_effort
+except ImportError:  # direct execution (python main.py)
+    from effort import resolve_effort, gemini_thinking_budget, display_effort
+
 # CLAUDE.md says "crash hard and often when assumptions are not met".
 # drop_params is the ONE explicit exception: litellm silently drops params
 # unsupported by the target provider (e.g. reasoning_effort on Groq, thinking_*
@@ -114,6 +119,16 @@ def get_model_name(model: BaseChatModel) -> str:
     return name.split("/", 1)[1] if "/" in name else name
 
 
+def get_effective_effort(model: BaseChatModel) -> str | None:
+    """Read the WordLLMs effort tag attached to the model, for the cost footer.
+
+    Returns None (never raises) when the tag is absent -- e.g. legacy-path
+    models, or providers that never carry a reasoning effort (groq) -- so the
+    footer degrades to "no label" rather than lying about what was applied.
+    """
+    return getattr(model, "_wordllms_effort", None)
+
+
 def _is_litellm_model(model: BaseChatModel) -> bool:
     """Return whether this model is the unified ChatLiteLLM wrapper."""
     return isinstance(model, _TaggedChatLiteLLM)
@@ -213,12 +228,20 @@ def _create_model_litellm(
     if timeout is not None:
         kwargs["timeout"] = timeout
 
+    # effort_kind selects how the resolved effort (computed once, below, after
+    # litellm_model is known) gets injected: "reasoning_effort" is the normal
+    # OpenAI-shaped param; "gemini_budget" is Gemini 2.5's separate
+    # thinking_budget field; None means this provider never takes an effort
+    # param (groq/ollama/lmstudio -- not in litellm's reasoning-capability map,
+    # so forcing it through would just be noise).
+    effort_kind: str | None = None
+
     if provider == "openai":
         litellm_model = f"openai/{model}"
         kwargs["api_key"] = credentials["api_key"]
         if credentials.get("base_url"):
             kwargs["api_base"] = credentials["base_url"]
-        kwargs["reasoning_effort"] = reasoning_effort
+        effort_kind = "reasoning_effort"
 
     elif provider == "azure":
         endpoint = credentials.get("endpoint", "")
@@ -230,25 +253,22 @@ def _create_model_litellm(
             litellm_model = f"azure/{credentials.get('deployment_name') or model}"
             kwargs["api_base"] = f"https://{resource}.openai.azure.com"
             kwargs["api_version"] = credentials.get("api_version", "2024-02-15-preview")
-            kwargs["reasoning_effort"] = reasoning_effort
         elif model.startswith("claude-"):
             litellm_model = f"azure_ai/{model}"
             kwargs["api_base"] = f"https://{resource}.services.ai.azure.com/anthropic"
-            kwargs["max_tokens"] = 16384
-            kwargs["reasoning_effort"] = reasoning_effort
+            # Anthropic's extended/adaptive thinking counts thinking tokens against
+            # this same ceiling, so a low value can let high-effort reasoning consume
+            # the whole budget before any visible text/tool call is emitted.
+            kwargs["max_tokens"] = 65536
         else:
             litellm_model = f"azure_ai/{model}"
             kwargs["api_base"] = f"https://{resource}.services.ai.azure.com/openai/v1/"
-            kwargs["reasoning_effort"] = reasoning_effort
+        effort_kind = "reasoning_effort"
 
     elif provider == "gemini":
         litellm_model = f"gemini/{model}"
         kwargs["api_key"] = credentials["api_key"]
-        if model.startswith("gemini-2.5"):
-            budget_map = {"low": 2048, "medium": 8192, "high": 24576}
-            kwargs["thinking_budget"] = budget_map[reasoning_effort]
-        else:
-            kwargs["reasoning_effort"] = reasoning_effort
+        effort_kind = "gemini_budget" if model.startswith("gemini-2.5") else "reasoning_effort"
 
     elif provider == "groq":
         litellm_model = f"groq/{model}"
@@ -271,8 +291,11 @@ def _create_model_litellm(
     elif provider == "anthropic":
         litellm_model = f"anthropic/{model}"
         kwargs["api_key"] = credentials["api_key"]
-        kwargs["max_tokens"] = 16384
-        kwargs["reasoning_effort"] = reasoning_effort
+        # See the azure_ai/claude- branch above: thinking tokens draw from the
+        # same max_tokens ceiling, so this must leave headroom for high-effort
+        # reasoning plus visible output.
+        kwargs["max_tokens"] = 65536
+        effort_kind = "reasoning_effort"
 
     elif provider == "togetherai":
         litellm_model = f"together_ai/{model}"
@@ -285,13 +308,35 @@ def _create_model_litellm(
         # Force these params through; Together's API supports them natively. No-op for
         # plain chat (tools absent) and for already-supported models like Qwen.
         kwargs["model_kwargs"] = {"allowed_openai_params": ["tools", "tool_choice"]}
+        # litellm also has NO reasoning_effort support data for together_ai at all
+        # (see providers/effort.py's togetherai carve-out), so that param would be
+        # silently dropped the same way without forcing it through below.
+        effort_kind = "reasoning_effort"
 
     else:
         raise ValueError(f"Unknown provider: {provider}")
 
+    resolved = None
+    if effort_kind is not None:
+        resolved = resolve_effort(provider, litellm_model, model, reasoning_effort)
+        if effort_kind == "gemini_budget":
+            budget = gemini_thinking_budget(resolved.effective)
+            if budget is not None:
+                kwargs["thinking_budget"] = budget
+        elif resolved.effective is not None:
+            kwargs["reasoning_effort"] = resolved.effective
+        if resolved.force_param:
+            # Append, never overwrite -- togetherai's model_kwargs above (the
+            # tools/tool_choice workaround) must survive intact.
+            model_kwargs = kwargs.setdefault("model_kwargs", {})
+            allowed = model_kwargs.setdefault("allowed_openai_params", [])
+            if "reasoning_effort" not in allowed:
+                allowed.append("reasoning_effort")
+
     chat = _TaggedChatLiteLLM(model=litellm_model, **kwargs)
     chat._wordllms_provider = provider
     chat._wordllms_raw_model = model
+    chat._wordllms_effort = display_effort(resolved) if resolved is not None else None
     return chat
 
 
@@ -344,7 +389,7 @@ def create_model(
     credentials: dict[str, Any],
     temperature: float = 1.0,
     timeout: int | None = None,
-    max_retries: int = 0,
+    max_retries: int = 3,
     reasoning_effort: str = "medium",
 ) -> BaseChatModel:
     """Factory function to create a chat model based on provider.
@@ -352,6 +397,12 @@ def create_model(
     Phase A: dispatches on env var `WORDLLMS_USE_LITELLM=1` to the new
     ChatLiteLLM-based factory. Default (unset/0) keeps the legacy per-provider
     code path intact for safe rollout.
+
+    `max_retries` defaults to 3 -- no call site should assume an LLM call
+    succeeds on the first try. This only feeds langchain_litellm's own retry
+    decorator, which covers Timeout/APIError/APIConnectionError/RateLimitError;
+    it does NOT cover litellm.InternalServerError (e.g. upstream 500s), so
+    `agents/llm_retry.py`'s wrappers separately retry on that class of error.
     """
     if _USE_LITELLM:
         return _create_model_litellm(

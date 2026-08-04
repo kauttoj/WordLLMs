@@ -28,6 +28,11 @@ from typing import Any, Literal
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
 from litellm import token_counter
 
+try:
+    from . import attachment_store
+except ImportError:  # direct execution (python main.py)
+    import attachment_store
+
 
 # ---------------------------------------------------------------------------
 # Token / character counting helpers
@@ -525,7 +530,9 @@ class ConversationStore:
 
     # --- Edit / Truncate / Fork (edit / retry / fork support) ---
 
-    def edit_user_message(self, conversation_id: str, turn: int, new_content: str) -> None:
+    def edit_user_message(
+        self, conversation_id: str, turn: int, new_content: str | list[dict],
+    ) -> None:
         """Replace the content of a turn's user message in-place.
 
         Used by Edit: modifies the stored user message so future LLM context
@@ -713,7 +720,21 @@ class ConversationStore:
         self._conn.commit()
         # Clear from memory cache
         self._conversations.pop(thread_id, None)
+        # thread_id doubles as conversation_id (see architecture docs) — this
+        # also covers _prune_threads, which routes through delete_thread.
+        attachment_store.delete_conversation(thread_id)
         return cursor.rowcount > 0
+
+    def list_known_ids(self) -> set[str]:
+        """Union of ids in the `threads` and `conversations` tables.
+
+        Used by the startup/profile-switch orphan sweep in attachment_store —
+        any attachment folder whose name isn't in this set is garbage.
+        """
+        assert self._conn is not None
+        thread_ids = {row[0] for row in self._conn.execute("SELECT id FROM threads").fetchall()}
+        conv_ids = {row[0] for row in self._conn.execute("SELECT conversation_id FROM conversations").fetchall()}
+        return thread_ids | conv_ids
 
     def _prune_threads(self) -> None:
         """Remove oldest threads if count exceeds MAX_THREADS."""

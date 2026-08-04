@@ -17,6 +17,7 @@ PLAIN_TEXT_EXTENSIONS = {
     ".java", ".kt", ".scala", ".c", ".cpp", ".h", ".hpp", ".cs",
     ".go", ".rs", ".rb", ".php", ".swift", ".m", ".r",
     ".sql", ".graphql", ".proto",
+    ".tex", ".bib", ".cls", ".sty",
     ".env", ".gitignore", ".dockerignore", ".editorconfig",
     ".dockerfile", ".makefile",
 }
@@ -89,46 +90,63 @@ def parse_file(filename: str, data_b64: str, char_limit: int = 0) -> tuple[str, 
     return text, truncation_info
 
 
-def format_attachments_for_message(
-    attachments: list[dict],
-    char_limit: int = 0,
-) -> tuple[str, list[dict], list[dict]]:
-    """Parse all attachments and split into text block + image parts.
+def compose_user_content(
+    base_text: str, items: list[dict], char_limit: int,
+) -> tuple[str | list[dict], list[dict]]:
+    """Build the exact content a user message carries when it has attachments.
+
+    This is the single code path that composes attachment content into a user
+    message — used identically by the send path (fresh upload, resolved via
+    `attachment_store.load_for_injection`) and the edit path, so a message
+    restored from history is byte-for-byte identical to a freshly sent one.
 
     Args:
-        attachments: List of dicts with 'filename' and 'data' (base64) keys.
-        char_limit: Per-file character limit for parsed text. 0 = unlimited.
+        base_text: The user's typed message text.
+        items: Resolved attachment content, in order — each either
+            {"filename","kind":"text","text"} or
+            {"filename","kind":"image","data_b64"}.
+        char_limit: Per-file character limit for text items. 0 = unlimited.
+            Applied here (not at storage time) so changing the setting
+            affects previously-stored attachments too.
 
     Returns:
-        (text_block, image_parts, truncation_warnings) where:
-        - text_block: formatted text for non-image files
-        - image_parts: list of multimodal image_url content parts for images
-        - truncation_warnings: list of dicts for files that were truncated
+        (content, truncation_warnings) where content is a plain string when
+        there are no images, or a multimodal content list (text part first,
+        then image_url parts) when there is at least one image. If `items` is
+        empty, content is `base_text` unchanged and truncation_warnings is [].
     """
+    if not items:
+        return base_text, []
+
     text_parts: list[str] = []
     image_parts: list[dict] = []
     truncation_warnings: list[dict] = []
 
-    for att in attachments:
-        filename = att["filename"]
-        data_b64 = att["data"]
-
-        if is_image(filename):
+    for item in items:
+        filename = item["filename"]
+        if item["kind"] == "image":
             mime = _get_mime_type(filename)
             image_parts.append({
                 "type": "image_url",
-                "image_url": {"url": f"data:{mime};base64,{data_b64}"},
+                "image_url": {"url": f"data:{mime};base64,{item['data_b64']}"},
             })
         else:
-            content, trunc_info = parse_file(filename, data_b64, char_limit)
-            if trunc_info:
-                truncation_warnings.append(trunc_info)
+            text = item["text"]
+            if char_limit > 0 and len(text) > char_limit:
+                truncation_warnings.append({
+                    "filename": filename,
+                    "original_chars": len(text),
+                    "truncated_chars": char_limit,
+                })
+                text = text[:char_limit] + f"\n\n[Content truncated at {char_limit} characters]"
             text_parts.append(
-                f'<attachment filename="{filename}">\n{content}\n</attachment>'
+                f'<attachment filename="{filename}">\n{text}\n</attachment>'
             )
 
     text_block = ""
     if text_parts:
         text_block = "\n\n---\n**Attached Files:**\n\n" + "\n\n".join(text_parts)
 
-    return text_block, image_parts, truncation_warnings
+    if image_parts:
+        return [{"type": "text", "text": base_text + text_block}, *image_parts], truncation_warnings
+    return base_text + text_block, truncation_warnings

@@ -26,10 +26,10 @@ from langchain_core.messages import BaseMessage
 
 try:
     from .agents.context import count_tokens
-    from .providers.base import get_provider, get_model_name
+    from .providers.base import get_provider, get_model_name, get_effective_effort
 except ImportError:  # direct execution (python main.py)
     from agents.context import count_tokens
-    from providers.base import get_provider, get_model_name
+    from providers.base import get_provider, get_model_name, get_effective_effort
 
 
 # WordLLMs provider -> litellm custom_llm_provider for automatic cost lookups.
@@ -164,6 +164,7 @@ def compute_cost(
             "provider": provider,
             "source": source,
             "estimated": estimated,
+            "effort": get_effective_effort(model),
         }
     except Exception as e:
         print(f"[pricing] cost computation failed (ignored): {type(e).__name__}: {e}")
@@ -190,6 +191,7 @@ def unknown_cost(model: Any) -> dict[str, Any]:
         "provider": provider,
         "source": "unknown",
         "estimated": False,
+        "effort": None,
     }
 
 
@@ -206,15 +208,22 @@ def aggregate_costs(parts: list[dict[str, Any] | None]) -> dict[str, Any] | None
     known = [p for p in parts if p["amount"] is not None]
     any_unknown = len(known) < len(parts)
     estimated = any(p["estimated"] for p in parts) or any_unknown
+    # Only label the aggregate with an effort when every part agrees on the
+    # same non-None value -- a multiagent run mixing efforts (or providers
+    # that never label one) must show no label rather than a misleading one.
+    efforts = {p.get("effort") for p in parts}
+    shared_effort = next(iter(efforts)) if len(efforts) == 1 and None not in efforts else None
 
     if not known:
         return {"amount": None, "currency": "USD", "model": "multiple",
-                "provider": "multiple", "source": "unknown", "estimated": estimated}
+                "provider": "multiple", "source": "unknown", "estimated": estimated,
+                "effort": None}
 
     currencies = {p["currency"] for p in known}
     if len(currencies) > 1:
         return {"amount": None, "currency": "USD", "model": "multiple",
-                "provider": "multiple", "source": "unknown", "estimated": estimated}
+                "provider": "multiple", "source": "unknown", "estimated": estimated,
+                "effort": None}
 
     return {
         "amount": sum(p["amount"] for p in known),
@@ -223,4 +232,5 @@ def aggregate_costs(parts: list[dict[str, Any] | None]) -> dict[str, Any] | None
         "provider": "multiple",
         "source": "manual" if any(p["source"] == "manual" for p in known) else "auto",
         "estimated": estimated,
+        "effort": shared_effort,
     }

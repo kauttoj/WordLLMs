@@ -26,3 +26,18 @@ def extract_text_from_content(content) -> str:
                 text_parts.append(block.get('text', ''))
         return ''.join(text_parts)
     return ""
+
+
+def get_stop_reason(response) -> str:
+    """Extract stop/finish reason from a message's response metadata (provider-agnostic).
+
+    Anthropic uses 'stop_reason', OpenAI/Gemini/Groq use 'finish_reason'.
+    Returns 'unknown' if metadata is missing or has no recognized key.
+    """
+    try:
+        meta = getattr(response, 'response_metadata', None)
+        if not isinstance(meta, dict):
+            return 'unknown'
+        return meta.get('stop_reason') or meta.get('finish_reason') or 'unknown'
+    except Exception:
+        return 'unknown'

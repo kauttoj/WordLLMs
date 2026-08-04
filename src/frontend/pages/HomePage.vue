@@ -567,6 +567,7 @@ import {
   saveThreadToBackend,
   type SerializedMessage,
   truncateConversation,
+  uploadAttachments,
 } from '@/api/backend'
 import { insertFormattedResult, insertResult } from '@/api/common'
 import { activeStreams } from '@/api/profile'
@@ -745,7 +746,7 @@ async function applyQuickActionSlot(slot: QuickActionSlot) {
 const mode = useStorage(localStorageKey.chatMode, 'ask' as 'ask' | 'agent' | 'multiagent')
 const history = ref<Message[]>([])
 const messageMetadata = new Map<number, BotMetadata>() // Bot metadata for multiagent display
-const messageAttachmentsMap = new Map<number, { filename: string; data?: string }[]>() // Attachment info per message (data present in-memory, absent after reload)
+const messageAttachmentsMap = new Map<number, { id: string; filename: string }[]>() // Attachment refs per message — {id, filename} only; content lives server-side
 const messageCostMap = ref<Record<number, CostInfo>>({}) // API cost per response, keyed by last-bubble index
 const currentBotMessageIndex = ref<number | null>(null) // Track current bot message being streamed
 const userInput = ref('')
@@ -806,7 +807,10 @@ async function refreshContextStats() {
 
 // Attachment state
 const MAX_TOTAL_ATTACHMENT_BYTES = 50 * 1024 * 1024 // 50 MB
-const pendingAttachments = ref<{ file: File | null; filename: string; data: string }[]>([])
+// A pending attachment is either a freshly picked file awaiting upload ({filename, data})
+// or an already-uploaded server-side ref ({filename, id}) — the latter is what Fork restores.
+type PendingAttachment = { filename: string; data: string } | { filename: string; id: string }
+const pendingAttachments = ref<PendingAttachment[]>([])
 const fileInputRef = ref<HTMLInputElement>()
 
 function openFileSelector() {
@@ -823,7 +827,7 @@ async function handleFileSelect(event: Event) {
 async function addFiles(files: File[]) {
   for (const file of files) {
     const currentTotal = pendingAttachments.value.reduce(
-      (sum, a) => sum + (a.file ? a.file.size : Math.ceil(a.data.length * 0.75)),
+      (sum, a) => sum + ('data' in a ? Math.ceil(a.data.length * 0.75) : 0),
       0,
     )
     if (currentTotal + file.size > MAX_TOTAL_ATTACHMENT_BYTES) {
@@ -831,7 +835,7 @@ async function addFiles(files: File[]) {
       return
     }
     const data = await fileToBase64(file)
-    pendingAttachments.value.push({ file, filename: file.name, data })
+    pendingAttachments.value.push({ filename: file.name, data })
   }
 }
 
@@ -1229,11 +1233,33 @@ async function sendMessage() {
   if (!userInput.value.trim() || loading.value || incompleteResponse.value) return
   if (!checkApiKey()) return
 
+  // Upload any not-yet-uploaded attachments first — base64 crosses the wire
+  // exactly once, here. Everything downstream (map, thread records, request
+  // bodies) only ever carries {id, filename}. On failure: abort the send and
+  // keep the typed message + pending attachments intact so the user can retry.
+  let messageAttachments: { id: string; filename: string }[] = []
+  if (pendingAttachments.value.length > 0) {
+    try {
+      const toUpload = pendingAttachments.value.filter((a): a is { filename: string; data: string } => 'data' in a)
+      const uploaded = toUpload.length > 0
+        ? await uploadAttachments(threadId.value, toUpload.map(a => ({ filename: a.filename, data: a.data })))
+        : []
+      const uploadedQueue = [...uploaded]
+      messageAttachments = pendingAttachments.value.map(a => {
+        if ('data' in a) {
+          const ref = uploadedQueue.shift()!
+          return { id: ref.id, filename: ref.filename }
+        }
+        return { id: a.id, filename: a.filename }
+      })
+    } catch (error: any) {
+      messageUtil.error(t('attachmentUploadFailed', { error: error.message || String(error) }))
+      return
+    }
+  }
+
   const userMessage = userInput.value.trim()
   userInput.value = ''
-
-  // Capture attachments for this message and clear pending list
-  const messageAttachments = pendingAttachments.value.map(a => ({ filename: a.filename, data: a.data }))
   pendingAttachments.value = []
 
   await nextTick()
@@ -1254,13 +1280,10 @@ async function sendMessage() {
     selectedText ? `${userMessage}\n\n[Selected text: "${selectedText}"]` : userMessage,
   )
 
-  // Track attachment filenames for this user message (will be at current history length after processChat pushes it)
+  // Track attachment refs for this user message (will be at current history length after processChat pushes it)
   if (messageAttachments.length > 0) {
     const userMsgIndex = history.value.length // processChat will push user msg at this index
-    messageAttachmentsMap.set(
-      userMsgIndex,
-      messageAttachments.map(a => ({ filename: a.filename, data: a.data })),
-    )
+    messageAttachmentsMap.set(userMsgIndex, messageAttachments)
   }
 
   scrollToBottom()
@@ -1269,7 +1292,7 @@ async function sendMessage() {
   abortController.value = new AbortController()
 
   try {
-    await processChat(fullMessage, undefined, messageAttachments)
+    await processChat(fullMessage, undefined, messageAttachments.length ? messageAttachments : undefined)
   } catch (error: any) {
     if (error.name === 'AbortError') {
       messageUtil.info(t('generationStop'))
@@ -1291,7 +1314,7 @@ async function sendMessage() {
 async function processChat(
   userMessage: HumanMessage,
   systemMessage?: string,
-  attachments?: { filename: string; data: string }[],
+  attachments?: { id: string; filename: string }[],
 ) {
   const settings = settingForm.value
   const { replyLanguage: lang, api: provider } = settings
@@ -1389,6 +1412,7 @@ async function processChat(
       togetheraiAPIKey: settings.togetheraiAPIKey,
       togetheraiModel: settings.togetheraiModelSelect,
       temperature: settings.togetheraiTemperature,
+      reasoningEffort: settings.togetheraiReasoningEffort,
       maxContextTokens: settings.togetheraiMaxContextTokens,
     },
   }
@@ -1415,7 +1439,11 @@ async function processChat(
   }
 
   // Helper function to build provider config for multiagent roles
-  const buildProviderConfigForRole = (provider: string, model: string): MultiAgentExpertConfig => {
+  const buildProviderConfigForRole = (
+    provider: string,
+    model: string,
+    effortOverride?: string,
+  ): MultiAgentExpertConfig => {
     const baseConfig = providerConfigs[provider]
     if (!baseConfig) {
       throw new Error(`Unsupported provider: ${provider}`)
@@ -1423,6 +1451,14 @@ async function processChat(
 
     // Clone the config and update the model field
     const config = { ...baseConfig }
+
+    // Per-role reasoning effort from the Multi-Agent sheet. Empty/absent means
+    // inherit the provider sheet's tier, which is already in baseConfig. The
+    // backend clamps whatever we send against the role's actual model, so a
+    // stale value can never produce an API error.
+    if (effortOverride) {
+      config.reasoningEffort = effortOverride
+    }
 
     // Update model based on provider type
     if (provider === 'openai') {
@@ -1488,16 +1524,22 @@ async function processChat(
 
     for (let i = 0; i < expertCount; i++) {
       const expert = config.experts[i]
-      experts.push(buildProviderConfigForRole(expert.provider, expert.model))
+      experts.push(buildProviderConfigForRole(expert.provider, expert.model, expert.reasoningEffort))
     }
 
     // Build overseer and synthesizer configs (use overseer for both)
-    const overseerConfig = buildProviderConfigForRole(config.overseer.provider, config.overseer.model)
-    const synthesizerConfig = buildProviderConfigForRole(config.overseer.provider, config.overseer.model)
+    const overseerConfig = buildProviderConfigForRole(
+      config.overseer.provider, config.overseer.model, config.overseer.reasoningEffort,
+    )
+    const synthesizerConfig = buildProviderConfigForRole(
+      config.overseer.provider, config.overseer.model, config.overseer.reasoningEffort,
+    )
 
     // Build formatter config if configured (legacy mode only)
     const formatterConfig = config.formatter?.model?.trim()
-      ? buildProviderConfigForRole(config.formatter.provider, config.formatter.model)
+      ? buildProviderConfigForRole(
+          config.formatter.provider, config.formatter.model, config.formatter.reasoningEffort,
+        )
       : undefined
 
     await getMultiAgentResponse({
@@ -1536,7 +1578,7 @@ async function processChat(
         messageMetadata.set(currentBotMessageIndex.value, { botType, botName: speaker, emoji })
         scrollToBottom()
       },
-      onMessage: (content: string, speaker?: string, round?: number) => {
+      onMessage: (content: string, speaker?: string, round?: number, cost?: CostInfo) => {
         if (!speaker) throw new Error('[MultiAgent] BUG: Received message without speaker identity')
         const newMsg = new AIMessage(content)
         history.value.push(newMsg)
@@ -1549,6 +1591,7 @@ async function processChat(
           emoji,
           roundNumber: round,
         })
+        if (cost) messageCostMap.value[currentBotMessageIndex.value] = cost
         liveCharsDelta.value += content.length
         scrollToBottom()
       },
@@ -1568,23 +1611,24 @@ async function processChat(
       onToolResult: (_toolName: string, _result: string, _speaker?: string) => {
         // No-op: tool completion is implicit
       },
-      onOverseerDecision: (decision: string) => {
+      onOverseerDecision: (decision: string, cost?: CostInfo) => {
         const decisionText = `**Decision: ${decision} discussion**`
         const decisionMsg = new AIMessage(decisionText)
         history.value.push(decisionMsg)
-        messageMetadata.set(history.value.length - 1, {
+        const newIndex = history.value.length - 1
+        messageMetadata.set(newIndex, {
           botType: 'overseer',
           botName: 'Overseer',
           emoji: '🎯',
           isDecisionOnly: true,
         })
+        if (cost) messageCostMap.value[newIndex] = cost
         currentBotMessageIndex.value = null
         scrollToBottom()
       },
-      onCost: (cost: CostInfo) => {
-        const idx = currentBotMessageIndex.value ?? history.value.length - 1
-        messageCostMap.value[idx] = cost
-      },
+      // Multiagent's "done" event no longer carries a summed cost — every
+      // expert/overseer/synthesizer bubble now prices itself above, via
+      // onMessage/onOverseerDecision. No onCost handler needed here.
     })
     if (
       multiAgentMode.value === 'collaborative' &&
@@ -1794,10 +1838,12 @@ async function submitEdit() {
   if (index === null) return
 
   const turn = getTurnForHumanMessageIndex(index)
+  const attachments = messageAttachmentsMap.get(index)
 
   try {
-    // Update backend ConversationStore entry in-place
-    await editConversationMessage(threadId.value, turn, editedText)
+    // Update backend ConversationStore entry in-place — re-inject the same
+    // attachment refs so the edited turn keeps its files.
+    await editConversationMessage(threadId.value, turn, editedText, attachments, settingForm.value.attachmentCharLimit)
   } catch (error) {
     console.error('[HomePage] Failed to edit message:', error)
     messageUtil.error(String(error))
@@ -1834,7 +1880,7 @@ async function forkFromMessage(index: number) {
 
   const forkedHistory = history.value.slice(0, index)
   const forkedMetadata = new Map<number, BotMetadata>()
-  const forkedAttachments = new Map<number, { filename: string; data?: string }[]>()
+  const forkedAttachments = new Map<number, { id: string; filename: string }[]>()
   const forkedCosts: Record<number, CostInfo> = {}
   for (let i = 0; i < index; i++) {
     if (messageMetadata.has(i)) forkedMetadata.set(i, messageMetadata.get(i)!)
@@ -1851,10 +1897,10 @@ async function forkFromMessage(index: number) {
   threadId.value = newThreadId
   incompleteResponse.value = false
 
-  // Return fork-point message to input box for re-editing
+  // Return fork-point message to input box for re-editing. Refs stay refs —
+  // fork already copied the attachment folder server-side, so no re-upload.
   userInput.value = forkPointText
-  pendingAttachments.value =
-    forkPointAttachments?.filter(a => a.data).map(a => ({ file: null, filename: a.filename, data: a.data! })) ?? []
+  pendingAttachments.value = forkPointAttachments?.map(a => ({ filename: a.filename, id: a.id })) ?? []
 
   await saveConversationToThread()
   refreshContextStats()
@@ -1880,7 +1926,7 @@ async function retryLastMessage() {
   const turn = getTurnForHumanMessageIndex(lastHumanIndex)
   const originalText = getMessageText(history.value[lastHumanIndex])
 
-  // Capture attachment data BEFORE truncation destroys the map entry
+  // Capture attachment refs BEFORE truncation destroys the map entry
   const savedAttachments = messageAttachmentsMap.get(lastHumanIndex)
 
   try {
@@ -1900,12 +1946,11 @@ async function retryLastMessage() {
   }
 
   const userMessage = new HumanMessage(originalText)
-  const attachmentData = savedAttachments?.filter(a => a.data).map(a => ({ filename: a.filename, data: a.data! }))
 
   loading.value = true
   abortController.value = new AbortController()
   try {
-    await processChat(userMessage, undefined, attachmentData?.length ? attachmentData : undefined)
+    await processChat(userMessage, undefined, savedAttachments)
   } catch (error: any) {
     if (error.name === 'AbortError') {
       messageUtil.info(t('generationStop'))
@@ -2076,7 +2121,8 @@ const formatCost = (cost: CostInfo): string => {
   const usd = cost.currency === 'EUR' ? cost.amount / rate : cost.amount
   const shown = displayCurrency === 'EUR' ? usd * rate : usd
   const digits = shown > 0 && shown < 0.01 ? 4 : 2
-  return `${cost.estimated ? '≈ ' : ''}${shown.toFixed(digits)}${symbol}`
+  const effortSuffix = cost.effort ? ` (${cost.effort})` : ''
+  return `${cost.estimated ? '≈ ' : ''}${shown.toFixed(digits)}${symbol}${effortSuffix}`
 }
 
 const shouldShowBotHeader = (index: number): boolean => {
@@ -2100,7 +2146,7 @@ const shouldShowBotHeader = (index: number): boolean => {
   return true
 }
 
-const getMessageAttachments = (index: number): { filename: string; data?: string }[] | undefined => {
+const getMessageAttachments = (index: number): { id: string; filename: string }[] | undefined => {
   return messageAttachmentsMap.get(index)
 }
 
@@ -2216,7 +2262,7 @@ async function saveConversationToThread() {
       const content = getMessageText(msg)
       if (!content || content.trim().length === 0) continue
 
-      const attachments = messageAttachmentsMap.get(i)?.map(a => ({ filename: a.filename }))
+      const attachments = messageAttachmentsMap.get(i)?.map(a => ({ id: a.id, filename: a.filename }))
       if (msg instanceof ToolCallMessage) {
         serializedMessages.push({
           role: 'tool_call' as const,
@@ -2293,17 +2339,28 @@ async function loadThreadHistory(targetThreadId: string) {
     messageMetadata.clear()
     messageAttachmentsMap.clear()
     messageCostMap.value = {}
+    let droppedAttachments = false
     thread.messages.forEach((msg: any, index: number) => {
       if (msg.metadata) {
         messageMetadata.set(index, msg.metadata)
       }
       if (msg.attachments?.length) {
-        messageAttachmentsMap.set(index, msg.attachments)
+        // A chip with no content must be impossible by construction — drop
+        // any ref the server can no longer resolve (legacy filename-only
+        // records, or files explicitly marked unavailable).
+        const available = msg.attachments.filter((a: any) => a.id && a.available !== false)
+        if (available.length !== msg.attachments.length) droppedAttachments = true
+        if (available.length > 0) {
+          messageAttachmentsMap.set(index, available.map((a: any) => ({ id: a.id, filename: a.filename })))
+        }
       }
       if (msg.cost) {
         messageCostMap.value[index] = msg.cost
       }
     })
+    if (droppedAttachments) {
+      messageUtil.warning(t('attachmentsUnavailable'))
+    }
 
     if (thread.mode) {
       mode.value = thread.mode as 'ask' | 'agent' | 'multiagent'

@@ -1,390 +1,209 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
 ## Project Overview
 
-WordLLMs is a Microsoft Word Add-in that integrates AI and LLM Agent capabilities directly into Microsoft Word. It supports multiple AI providers (OpenAI, Azure OpenAI, Google Gemini, Groq, Ollama, LMStudio) and provides both chat mode and agent mode with document manipulation tools.
+WordLLMs is a Microsoft Word Add-in (Vue 3 + TypeScript front end, Python FastAPI backend) that
+brings chat, single-agent and multi-agent LLM workflows into Word, with tools that read and edit
+the document via Office.js.
 
-## Development Commands
+Stack: Vue 3 (Composition API) + Vite + TailwindCSS v4, Office.js, Dexie/IndexedDB,
+FastAPI + LangGraph/LangChain, litellm for provider access and pricing.
 
-### Frontend (Vue 3 Add-in)
+## Run environment
+
+Windows 11, sandboxed. **Always** use the repo virtualenv explicitly — `.venv\Scripts\python.exe`
+and `.venv\Scripts\pip.exe`. Never a bare `python`/`pip` or a global interpreter.
+
+## Commands
+
 ```bash
-yarn dev          # Start dev server on port 3000
-yarn build        # Production build to /dist
-yarn serve        # Preview production build on port 3000
-yarn lint         # Run ESLint
-yarn lint:fix     # Run ESLint with auto-fix
-yarn lint:style   # Run Stylelint on Vue/CSS files
-yarn lint:dpdm    # Check for circular dependencies
+yarn dev | build | serve          # frontend (port 3000)
+yarn lint | lint:fix | lint:style | lint:dpdm
+.venv\Scripts\python.exe src/backend/main.py    # backend (port 8000)
 ```
 
-### Backend (Python FastAPI Server)
-```bash
-cd src/backend
-pip install -r requirements.txt  # Install dependencies
-python main.py                   # Start backend on port 8000
-# or
-uvicorn main:app --reload        # Start with auto-reload
-```
+## Live LLM testing
+
+If a test makes **real** API calls, use the cheapest Haiku model and the minimum number of calls
+needed to prove the point. Never loop, benchmark or fan out against a paid model to verify
+something a stub or a single call can show. Costs are real.
 
 ## Architecture
 
-### Core Technologies
-- **Vue 3** with Composition API and TypeScript
-- **LangChain** for AI model orchestration and agent system
-- **FastAPI** (Python) for optional backend server execution
-- **Office.js** for Word document interaction
-- **Dexie/IndexedDB** for conversation checkpoint persistence
-- **Vite** + **TailwindCSS v4** for build and styling
+All LLM work runs on the Python backend and streams to the frontend over SSE.
+`src/frontend/api/union.ts` is a thin shim that forwards to the backend — **browser mode is
+deprecated**; no client-side LangChain models or tools remain.
 
-### Execution Modes
+Key files:
+- `src/frontend/api/backend.ts` — API client, `parseSSEStream()`. Events: `text`, `tool_call`,
+  `tool_result`, `error`, `done`. Text events carry accumulated content.
+- `src/frontend/pages/HomePage.vue` — main chat/agent UI, builds provider configs.
+- `src/frontend/utils/wordTools.ts` — Office.js executors (`wordToolExecutors`).
+- `src/frontend/utils/settingPreset.ts`, `utils/enum.ts` — settings schema + localStorage keys.
+- `src/backend/main.py` — FastAPI app, SSE endpoints (`/api/chat`, `/api/agent`, `/api/multiagent`).
+- `src/backend/agents/chat_agent.py` — `stream_chat`, `stream_agent`, `resume_agent`.
+- `src/backend/agents/chat_multiagent.py` — parallel & collaborative expert orchestration.
+- `src/backend/prompts/system_prompts.py` — **all** system prompts, `generate_*_prompt()`.
+- `src/backend/providers/base.py` — `create_model()` factory.
+- `src/backend/conversation_store.py` — server-side LLM history (see below).
 
-The application supports **two execution modes**:
+Path alias `@/` → `src/frontend/`. App boots inside `Office.onReady()` in `main.ts`.
+i18n locale keys must stay sorted (ESLint rule). The codebase has Chinese locale files, but
+development targets English only.
 
-1. **Backend Mode (Default)**: LLM requests are processed by a Python FastAPI server
-   - Controlled by `isBackendEnabled()` in `src/frontend/api/union.ts` (defaults to `true`)
-   - Backend URL configurable via `setBackendUrl()`, defaults to same origin
-   - Uses Server-Sent Events (SSE) for streaming responses
-   - Better for production: reduces browser memory usage, enables server-side tools
+## Error handling
 
-2. **Browser Mode (Fallback)**: LLM requests execute directly in the browser
-   - Uses LangChain.js running client-side
-   - Useful for development/debugging or when backend unavailable
-   - Toggle with `setBackendEnabled(false)` in localStorage
+**Fail loudly.** Errors propagate to the user with the real message — no silent catches, no
+generic "Something went wrong". SSE parse failures break the loop and surface. HTTP errors include
+status and body. The only deliberate exceptions are cost computation and `litellm.drop_params`.
 
-### Key Directories
+## Agent system
 
-#### Frontend (Vue/TypeScript)
+LangGraph `StateGraph` with an `agent` → `tools` loop and a `MemorySaver` checkpointer.
+`tool_node` runs server tools inline and uses `interrupt()` for client-side Word tools, resumed via
+`resume_agent()`. Iteration cap is the `recursion_limit` param (default 25, GUI: General → Agent
+Max Iterations).
+
+System prompt injection: if the request carries `language`, the backend generates the default
+prompt; if absent, the frontend supplied a custom system message (first message, `role='system'`).
+See `inject_system_prompt_if_needed`.
+
+**Never** give a local wrapper the same name as an imported library function (e.g. a local
+`create_agent` shadowing `langchain.agents.create_agent`) — it causes infinite recursion.
+
+## Tools — single source of truth
+
+`src/backend/tools/word_tools.py` owns every Word tool's name, description, JSON schema and
+category (`read`/`select`/`write`). Nothing else defines them. `GET /api/tools` publishes the
+manifest; `src/frontend/api/toolManifest.ts` caches it and asserts parity against
+`wordToolExecutors` in both directions, failing loudly on drift. The frontend holds executors only
+— no schemas, descriptions or i18n keys for tool names.
+
+Server-side tools live in `src/backend/tools/`: `web_search`, `fetch_url`, `calculate`,
+`get_current_date`. Name conversion camelCase ↔ snake_case in `src/frontend/api/toolNames.ts`.
+
+## Conversation history (consigliere model)
+
+Chat LLM, single agent, overseer and synthesizer are one "consigliere" persona sharing a long-term
+history in `ConversationStore`. Experts are task-scoped workers whose messages never enter it.
+
+Two histories exist: the frontend `history` array (GUI display, shows everything including expert
+and intermediate messages) and the backend `ConversationStore` (LLM context only).
+
+Visibility:
+- `public` — user messages + consigliere final responses.
+- `consigliere` — tool interactions (AIMessage with tool_calls + ToolMessage) from
+  chat/agent/overseer/synthesizer. Never visible to experts.
+- Expert messages are not stored at all; they live only in LangGraph state during the task.
+
+Consigliere personas read everything via `get_history_for_consigliere()`. Experts see only the
+current task's user query, peer discussion and their own tool chain.
+
+Key methods: `start_turn`, `add_user_message`, `add_public_response`, `add_consigliere_messages`,
+`get_history_for_consigliere`, `rollback_turn`, `delete_thread`.
+
+The frontend sends **only the new user message** (plus a system message for custom prompts); all
+prior context comes from `ConversationStore`, keyed by `conversationId` (from `threadId`).
+
+## Settings
+
+Declarative: defined in `settingPreset.ts` with type (`input`, `select`, `inputNum`, `checkbox`),
+default and localStorage key; `SettingsPage.vue` renders them. A provider prefix (e.g.
+`lmstudio*`) makes a setting appear only for that provider.
+
+Adding a setting — touch all of: `utils/enum.ts` key → `Setting_Names` + `settingPreset` →
+`i18n/locales/{en,zh-cn}.json` → `api/types.ts` → `HomePage.vue` provider options →
+`api/backend.ts` request body → `src/backend/schemas.py` → backend logic.
+
+## File attachments
+
+Attachment content lives **server-side** in the profile folder; base64 crosses the wire once, at
+upload. Everything downstream carries `{id, filename}` refs only, which is why attachments survive
+thread switch, reload, retry, fork and edit.
+
 ```
-src/frontend/
-├── api/
-│   ├── union.ts        # Execution mode routing (backend vs browser)
-│   ├── backend.ts      # Backend API client with SSE streaming
-│   ├── checkpoints.ts  # IndexedDBSaver - persists LangGraph checkpoints via Dexie
-│   ├── common.ts       # Word document insertion helpers
-│   └── types.ts        # Provider option interfaces
-├── utils/
-│   ├── wordTools.ts    # Office.js executors for the 28 Word tools (wordToolExecutors)
-│   ├── generalTools.ts # General agent tools (web search, fetch, math, date)
-│   ├── settingPreset.ts # Settings schema with localStorage persistence
-│   └── constant.ts     # Available models per provider
-├── pages/
-│   ├── HomePage.vue    # Main chat/agent interface
-│   └── SettingsPage.vue
-├── components/         # Reusable UI components
-└── i18n/locales/       # en.json, zh-cn.json (ESLint enforces sorted keys)
-```
-
-#### Backend (Python/FastAPI)
-```
-src/backend/
-├── main.py             # FastAPI app with SSE endpoints (/api/chat, /api/agent, /api/multiagent)
-├── schemas.py          # Pydantic request/response models
-├── conversation_store.py  # Unified consigliere conversation history (in-memory)
-├── prompts/
-│   ├── __init__.py     # Package init
-│   └── system_prompts.py  # All system prompt generation functions (chat, agent, multiagent)
-├── agents/
-│   ├── chat_agent.py   # LangGraph agent execution (stream_chat, stream_agent)
-│   └── chat_multiagent.py  # Multi-expert orchestration (parallel & collaborative modes)
-├── providers/
-│   ├── base.py         # Model factory (create_model)
-│   ├── provider_openai.py
-│   ├── provider_azure.py
-│   ├── provider_gemini.py
-│   ├── provider_groq.py
-│   ├── provider_ollama.py
-│   └── provider_lmstudio.py
-└── tools/
-    ├── __init__.py     # Tool registry (AVAILABLE_TOOLS)
-    ├── web.py          # web_search_tool, fetch_url_tool
-    ├── calculator.py   # calculate_tool (safe math eval)
-    └── date.py         # get_current_date_tool
-```
-
-### AI Provider Integration
-
-**Backend Mode (Default)**:
-- `src/frontend/api/backend.ts` handles all API communication via SSE streaming
-- `streamChatFromBackend()` and `streamAgentFromBackend()` send requests to FastAPI endpoints
-- Backend `create_model()` in `src/backend/providers/base.py` instantiates LangChain models
-- Supports: OpenAI, Azure OpenAI, Google Gemini, Groq, Ollama, LMStudio
-
-**Browser Mode (Fallback)**:
-- `src/frontend/api/union.ts` contains `ModelCreators` factory for browser-side LangChain models
-- Direct browser execution of LangChain.js
-- Used when backend is disabled or unavailable
-
-### Agent Tools System
-
-**Backend Mode**:
-- Server-side tools in `src/backend/tools/`:
-  - `web_search` - DuckDuckGo search
-  - `fetch_url` - HTTP requests with HTML-to-text conversion
-  - `calculate` - Safe math evaluation
-  - `get_current_date` - Date/time information
-- Tool names converted between camelCase (frontend) and snake_case (backend) by `toBackendName()` / `toFrontendName()` in `src/frontend/api/toolNames.ts`
-- Word manipulation tools remain browser-side (Office.js requires browser context)
-
-**Tool definitions — single source of truth**:
-- `src/backend/tools/word_tools.py` owns every Word tool's name, description, JSON
-  schema and category (`read` / `select` / `write`). Nothing else defines them.
-- `GET /api/tools` publishes the manifest (`name`, `description`, `kind`, `category`);
-  `src/frontend/api/toolManifest.ts` caches it and asserts parity against
-  `wordToolExecutors` in both directions, failing loudly on drift.
-- The frontend holds executors only — no Zod schemas, no descriptions, no i18n keys
-  for tool names. Settings and read-only filtering read the manifest.
-
-**Browser Mode**: deprecated. `src/frontend/api/union.ts` is a thin shim that forwards
-everything to the backend; no client-side LangChain models or tools remain.
-
-### Conversation History (Consigliere Model)
-
-The backend uses a unified "consigliere" model for cross-mode message history, implemented in `src/backend/conversation_store.py`. This allows seamless switching between chat, agent, and multiagent modes within the same conversation session.
-
-**Core concept**: Chat LLM, single agent, overseer, and synthesizer are all the same "consigliere" persona sharing one long-term history. Experts are temporary workers scoped to a single multiagent task — their messages never enter long-term history.
-
-**Two separate histories exist**:
-- **Frontend `history` array** (`HomePage.vue`): GUI display only. Shows everything including expert messages, tool calls, intermediate overseer decisions. This is what the user sees.
-- **Backend `ConversationStore`**: LLM context. Only stores consigliere-relevant messages. This is what gets sent to models.
-
-**Visibility rules** (`ConversationStore`):
-- `"public"` — User messages + consigliere final text responses. Visible to all consigliere personas.
-- `"consigliere"` — Tool interactions (AIMessage with tool_calls + ToolMessage results) from chat/agent/overseer/synthesizer. Visible to consigliere personas but never to experts.
-- Expert tool calls and intermediate messages are never stored in ConversationStore — they live only in LangGraph state during the active task.
-
-**What gets stored per mode**:
-| Mode | Stored in ConversationStore |
-|------|----------------------------|
-| Chat | user message (public) + assistant response (public) |
-| Agent | user message (public) + final response (public) + tool interactions (consigliere) |
-| Parallel | user message (public) + synthesizer final response (public) + synthesizer tool interactions (consigliere) |
-| Collaborative | user message (public) + overseer final answer (public) + overseer tool interactions (consigliere) |
-
-**What each persona sees**:
-- **Chat/Agent/Overseer/Synthesizer**: Full consigliere history via `get_history_for_consigliere()` — all `public` + `consigliere` entries from all past turns
-- **Experts**: Only the current task's user query + peer discussion + own tool chain (no cross-turn history, no other persona's tool calls)
-
-**Example conversation flow**:
-```
-Turn 1 (agent mode):
-  [user] "Write me a title"           → stored as public
-  [agent tool calls]                   → stored as consigliere
-  [agent] "I wrote a title"           → stored as public
-
-Turn 2 (parallel multiagent):
-  [user] "Suggest an abstract"        → stored as public
-  [expert 1 tools + response]         → NOT stored (task-scoped only)
-  [expert 2 tools + response]         → NOT stored (task-scoped only)
-  [synthesizer tool calls]            → stored as consigliere
-  [synthesizer] "Combined response"   → stored as public
-
-Turn 3 (chat mode):
-  Chat LLM sees: turn 1 user + agent tools + agent response
-                 + turn 2 user + synthesizer tools + synthesizer response
-  Experts would see: ONLY the new user query
+<profile>/attachments/<conversation_id>/
+    index.json                 # {"<id>": {filename, kind, stored_name, chars}}
+    Reviews__3f9a1c.txt        # parsed text, UTF-8, exact round-trip (newline="")
+    figure1__7b2d40.png        # images: original bytes, unparsed
 ```
 
-**Key methods** (`ConversationStore`):
-- `start_turn(conversation_id)` → increments turn counter, returns turn number
-- `add_user_message(...)` → stores user message as `public`
-- `add_public_response(...)` → stores final assistant response as `public`
-- `add_consigliere_messages(...)` → stores tool interactions as `consigliere`
-- `get_history_for_consigliere(conversation_id)` → returns all entries (public + consigliere)
-- `rollback_turn(conversation_id, turn)` → removes all entries from a failed turn
+- `POST /api/attachments` parses each file once via `parse_file(char_limit=0)` — untruncated. A
+  parse failure is a 400 at upload, not a dead chat request later.
+- `inject_attachments` (`main.py`) resolves refs and builds the user message through the single
+  composer `file_processing.compose_user_content`, shared with `POST /api/conversation/edit`, so
+  restored and fresh messages are byte-identical. `attachment_char_limit` is applied here.
+- An unresolvable id is a **400**, never a silent send with files dropped.
+- `GET /api/threads[/{id}]` annotates refs with `available: bool`; `loadThreadHistory` hides
+  unavailable ones and warns once per thread.
+- Lifecycle: fork → `copy_conversation`, thread delete → folder removed, startup and profile switch
+  → `sweep_orphans`.
 
-**Frontend sends only the new user message** (+ system message if custom prompt). All prior context comes from ConversationStore on the backend. The `conversationId` parameter (derived from `threadId` in `HomePage.vue`) links requests across mode switches.
+## API cost display
 
-### Checkpoint Persistence
+Cost renders as a footer on the **last bubble** of a response. `src/backend/pricing.py` uses
+`litellm.cost_per_token()` with token counts from `usage_metadata` (final streaming chunk; a
+`token_counter` fallback marks the result `estimated`). The dict
+`{amount, currency, model, provider, source, estimated, effort}` rides the SSE `done` event for
+chat/agent mode. `source` is `auto` | `manual` | `unknown` (unknown → UI shows `-`, never `$0`).
+Multiagent instead prices each LLM call individually and stashes the dict onto that call's own
+response (`response_metadata["wordllms_cost"]`); the stream processor reads it back and rides it on
+that bubble's own `"message"`/`"overseer_decision"` SSE event, so every expert/overseer/synthesizer
+bubble shows its own price — multiagent's `done` event carries no cost at all. A same-bubble,
+multi-call turn (e.g. an expert's own tool-round retries, or the legacy-mode formatter fallback)
+merges via `pricing.aggregate_costs`, but costs are never merged *across* different bubbles. The
+agent path accumulates in `_session_usage` so cost survives resume cycles.
+**All cost computation is wrapped in try/except** — pricing must never break a working response.
 
-`IndexedDBSaver` in `src/frontend/api/checkpoints.ts` implements LangGraph's `BaseCheckpointSaver` to persist conversation state in IndexedDB via Dexie, enabling conversation history restoration.
+Display: General settings `costDisplayCurrency` (USD/EUR) and `costCurrencyRate` (EUR per USD);
+`formatCost` in `HomePage.vue` converts. Token counts are not shown. Cost persists via
+`SerializedMessage.cost`. The effort tier is appended (`0.014€ (high)`) only when the backend can
+confirm it took effect.
 
-### Backend Communication & Error Handling
+## Reasoning effort
 
-**Server-Sent Events (SSE) Streaming**:
-- Backend streams responses using SSE format: `event: <type>\ndata: <json>\n\n`
-- Event types: `text`, `tool_call`, `tool_result`, `error`, `done`
-- `parseSSEStream()` in `src/frontend/api/backend.ts` parses events and invokes callbacks
-- Accumulates `fullContent` for text events (backend sends accumulated content per event)
+`src/backend/providers/effort.py` is the single source of truth for which tiers a model supports,
+backing both the Settings dropdown (`GET /api/model-capabilities`) and the runtime clamp in
+`providers/base.py`. Ladder: `none, low, medium, high, xhigh, max`.
 
-**Error Handling Philosophy** (per CLAUDE.md coding principles):
-- **Fail loudly**: All errors propagate to user, no silent catches
-- Network errors display actual error messages (not generic "Something went wrong")
-- SSE parse failures break processing loop and show error
-- HTTP errors include status code and response text
-- Diagnostic logging at each pipeline stage for debugging
+Why it exists: for a model name litellm doesn't know, `reasoning_effort` drops out of supported
+params and `drop_params=True` discards it **silently**. `effort.py` makes that visible (`source`,
+`warnings`) and forces the param through via `allowed_openai_params`.
 
-**Streaming Control**:
-- `ENABLE_STREAM` flag in `src/backend/agents/chat_agent.py` (line 17)
-- When `False`: Full response accumulated before sending (easier debugging)
-- When `True`: Incremental chunks streamed as generated (better UX)
+Precedence: (1) `model_efforts.json` `supported_efforts` → `override`; (2) its `base_model` alias;
+(3) litellm capability hit → `litellm`; (4) base-model inference from the name → `inferred`;
+(5) conservative `none/low/medium/high` → `fallback`. Cases 4–5 can't confirm the target honored
+it, so Settings shows a notice and the cost footer omits the effort label. `togetherai` is carved
+out — litellm tracks no reasoning data there, so a miss is never evidence of absence.
 
-**Thinking Tag Filtering** (for reasoning models like DeepSeek-R1):
-- `ThinkingFilter` class filters `<think>...</think>` blocks from LLM responses
-- Controlled by `filter_thinking` parameter (boolean, default: `true`)
-- For LMStudio provider, configurable via GUI checkbox: Settings → LMStudio → "Filter Thinking Blocks"
-- When enabled: Removes internal reasoning tokens from streamed responses
-- When disabled: Shows full reasoning process including thinking blocks
-- Works in both streaming and non-streaming modes
+Multiagent roles inherit credentials, temperature and context limit from each provider's settings
+sheet (`buildProviderConfigForRole`). Effort is inherited too *unless* the role sets its own tier
+in Settings → Multi-Agent, since the ladder belongs to the model and a role often runs a different
+one. `reasoningEffort: ''`/absent means inherit; values are clamped per role by `resolve_effort`.
 
-## Important Patterns
+## Data persistence (Docker)
 
-### Frontend
-- The app initializes inside `Office.onReady()` callback in `main.ts`
-- Path alias `@/` maps to `src/frontend/` directory
-- Settings use localStorage with keys defined in `src/frontend/utils/enum.ts`
-- i18n locale files must have sorted keys (ESLint rule enforced)
-- `async_hook.js` is a polyfill stub for LangChain browser compatibility
+`ENV DATA_DIR=/app/data`; the host volume **must** mount there:
+`docker run -d -p 3000:8000 -v "C:\path:/app/data" kauttoj/wordllms`
 
-### Settings System
-**Declarative Settings Architecture**:
-- Settings defined in `src/frontend/utils/settingPreset.ts` with type, default value, and localStorage keys
-- `SettingsPage.vue` dynamically renders settings based on provider prefix and setting type
-- Settings flow: GUI → localStorage → provider options → request body → backend
+Persisted: `conversations.db`, `attachments/<conversation_id>/`, `config.json`,
+`mcp_servers.json`, `model_costs.json`, `model_efforts.json`, `data_version.json`.
+Not persisted (browser-side, survives rebuilds anyway): localStorage (API keys, settings) and
+IndexedDB (LangGraph checkpoints, thread display history).
 
-**Setting Types**:
-- `'input'`: Text input fields
-- `'select'`: Dropdown menus
-- `'inputNum'`: Number input fields
-- `'checkbox'`: Boolean checkboxes (added for `lmstudioFilterThinking`)
+`model_costs.json` and `model_efforts.json` are hand-edited (no GUI), keyed `"<provider>:<bare_model>"`
+(split on first colon, so `llama4:latest` survives) and read fresh per use (no restart). Costs are
+per 1M tokens (`input_per_1m`, `output_per_1m`, optional `currency`). A malformed `model_efforts.json`
+is logged and ignored, never fatal.
 
-**Provider-Specific Settings**:
-- Settings with provider prefix (e.g., `lmstudio*`) automatically appear only for that provider
-- Example: `lmstudioFilterThinking` only shows when LMStudio is selected
-- Helper functions: `inputSetting()`, `selectSetting()`, `inputNumSetting()`, `checkboxSetting()`
-
-**Adding New Settings**:
-1. Add localStorage key to `src/frontend/utils/enum.ts`
-2. Register setting in `Setting_Names` array and `settingPreset` object
-3. Add i18n labels to `src/frontend/i18n/locales/{en,zh-cn}.json`
-4. Add TypeScript type to relevant interface in `src/frontend/api/types.ts`
-5. Include in provider options in `src/frontend/pages/HomePage.vue`
-6. Add to request body interfaces in `src/frontend/api/backend.ts`
-7. Add to Pydantic schema in `src/backend/schemas.py`
-8. Use in backend logic (e.g., `src/backend/agents/chat_agent.py`)
-
-### Backend Integration
-- Backend URL defaults to same origin (empty string) for production
-- Can be overridden with `setBackendUrl('http://localhost:8000')` for dev
-- `isBackendEnabled()` checks localStorage `'useBackend'` key (defaults to `true`)
-- Frontend converts provider name `'official'` → `'openai'` for backend
-- Tool names mapped: `fetchWebContent` → `fetch_url`, `searchWeb` → `web_search`, etc.
-- API credentials extracted from provider option objects and sent to backend
-- Console logging with `[Backend]` and `[HomePage]` prefixes for debugging
-
-### Agent System
-**Single Agent** (`src/backend/agents/chat_agent.py`):
-- LangGraph `StateGraph` with `agent` → `tools` loop, compiled with `MemorySaver` checkpointer
-- `agent_node`: Binds server + client tools to model, invokes LLM
-- `tool_node`: Executes server tools inline, uses `interrupt()` for client-side Word tools
-- Agent execution controlled by `recursion_limit` parameter (default: 25, range: 1-100)
-- Configurable via GUI: Settings → General → "Agent Max Iterations"
-
-**Agent Functions**:
-- `stream_chat()`: Simple chat streaming (no tools), stores to ConversationStore
-- `stream_agent()`: Streams agent responses with tool calls using SSE, stores to ConversationStore
-- `resume_agent()`: Resumes paused agent after client tool execution
-- All functions accept `conversation_id` + `conversation_store` for unified history
-
-**System Prompts** (`src/backend/prompts/system_prompts.py`):
-All system prompts are centralized in a single file for easier maintenance:
-- **Chat Mode**: `generate_chat_system_prompt(language)` - Simple 30-word prompt
-- **Agent Mode**: `generate_agent_system_prompt(language, surgical_updates)` - Comprehensive 600-word prompt with tool instructions
-- **MultiAgent Expert**: `generate_multiagent_expert_prompt(expert_name, expert_index, total_experts, round_num, use_memory, memory_content, mode)` - Context-aware prompts for parallel/collaborative modes
-- **MultiAgent Synthesizer**: `generate_multiagent_synthesizer_prompt(expert_responses)` - Aggregation prompts (with or without explicit expert feedback)
-- **MultiAgent Overseer**: `generate_multiagent_overseer_prompt(total_experts, current_round, max_rounds)` - Evaluation prompts for collaborative mode
-- **Custom Prompts**: Quick actions and saved prompts are sent from frontend as system messages
-
-**Prompt Injection Logic** (`src/backend/agents/chat_agent.py`):
-- If `language` parameter provided in request → Backend generates default system prompt
-- If `language` absent → Frontend provided custom system prompt (first message with role='system')
-- Function: `inject_system_prompt_if_needed(messages, language, prompt_generator)`
-- Frontend logic in `src/frontend/pages/HomePage.vue` determines when to use custom vs. default prompts
-
-**Architecture Benefits**:
-- **Single Source of Truth**: All system prompts (chat, agent, multiagent) in one file
-- **Consistent Naming**: All functions follow `generate_*_prompt()` pattern
-- **Easier Maintenance**: Prompt updates in one predictable location (`src/backend/prompts/system_prompts.py`)
-- **Better Separation**: Orchestration logic (`src/backend/agents/chat_agent.py`, `src/backend/agents/chat_multiagent.py`) separate from prompt content
-- **Reusability**: Prompt functions can be imported and reused across different modes
-
-**Important**: Never name local wrapper functions the same as imported library functions (e.g., don't name a local function `create_agent` when importing `from langchain.agents import create_agent`) to avoid infinite recursion.
+Compatibility: bump the `DATA_VERSION` constant in `main.py` on a breaking schema change.
+`_check_data_compatibility()` runs at startup; on mismatch all `*.db`/`*.json` and `attachments/`
+move to `archive_<timestamp>/` and the app starts fresh.
 
 ## Deployment
 
-### Word Add-in
-- `release/instant-use/manifest.xml` - Points to hosted version
-- `release/self-hosted/manifest.xml` - For local/Docker deployment
-- Docker image: `kuingsmile/word-gpt-plus`
-
-### Python Backend
-- **Development**: Run `python src/backend/main.py` on port 8000
-- **Production**: Deploy FastAPI app with uvicorn/gunicorn
-- **Docker**: Backend can be containerized separately or with frontend
-- **CORS**: Currently allows all origins (`allow_origins=["*"]`) - restrict in production
-- **Static Assets**: Backend serves frontend static files from `/dist` directory
-
-### Docker Data Persistence
-
-The Dockerfile sets `ENV DATA_DIR=/app/data`. The host volume **must** be mounted to `/app/data`:
-
-```
-docker run -d -p 3000:8000 -v "C:\your\local\path:/app/data" kauttoj/wordllms
-```
-
-Files persisted in `DATA_DIR`:
-- `conversations.db` — SQLite conversation history (name configurable via GUI)
-- `config.json` — last-used DB path
-- `mcp_servers.json` — MCP server configs
-- `model_costs.json` — optional, hand-edited per-model price overrides (see API Cost Display below)
-- `data_version.json` — schema version marker (written on every startup)
-
-**Compatibility check** (`src/backend/main.py`):
-- `DATA_VERSION` integer constant — bump it manually when a breaking schema change makes old data unreadable
-- `_check_data_compatibility()` runs at startup before `ConversationStore` is initialized
-- If `data_version.json` is missing or matches: proceeds normally
-- If version mismatch: all `*.db` and `*.json` files are moved to `archive_<timestamp>/` and the app starts fresh
-
-**What does NOT require Docker persistence** (browser-side, survives container rebuilds naturally):
-- `localStorage` — API keys, model settings, all GUI preferences
-- `IndexedDB` (Dexie) — LangGraph checkpoints, thread display history (`src/frontend/api/checkpoints.ts`)
-
-## API Cost Display
-
-Each AI response shows its API cost as a small footer on the **last bubble** of the response
-(one logical response may render as several bubbles; only the final one carries the cost).
-
-**Backend** (`src/backend/pricing.py`): cost is computed with litellm's built-in
-`litellm.cost_per_token()` (token counts come from `usage_metadata`, available on the final
-streaming chunk because `langchain-litellm` sets `stream_options={"include_usage": True}`; a
-`litellm.token_counter` fallback marks the result `estimated`). The cost dict
-(`{amount, currency, model, provider, source, estimated}`) is attached to the SSE `done` event.
-`source` is `auto` (litellm price DB), `manual` (override), or `unknown` (no price → UI shows
-`-`, never `$0`). Multiagent sums per-call costs across experts/synthesizer/overseer via a
-shared `cost_acc` in `config["configurable"]` (and threaded into the out-of-graph parallel
-experts), aggregated by `pricing.aggregate_costs`. The agent path accumulates usage per session
-in `_session_usage` so the cost survives client-tool resume cycles. **All cost computation is
-wrapped in try/except** so a pricing failure can never break a working response — a deliberate,
-narrow exception to the fail-loud policy (like `litellm.drop_params`).
-
-**Price overrides** — `model_costs.json` in the profile folder (hand-edited, no GUI), keyed
-`"<provider>:<bare_model>"` (split on the first colon, so Ollama tags like `llama4:latest`
-survive), prices **per 1M tokens**:
-```jsonc
-{
-  "openai:gpt-5.4":       { "input_per_1m": 2.50, "output_per_1m": 10.0, "currency": "USD" },
-  "ollama:llama4:latest": { "input_per_1m": 0,    "output_per_1m": 0,    "currency": "USD" }
-}
-```
-`currency` is optional (default `USD`). Overrides are applied via litellm's
-`custom_cost_per_token` and read fresh per response (no restart needed).
-
-**Currency display** — two General settings: `costDisplayCurrency` (USD/EUR) and
-`costCurrencyRate` (EUR per 1 USD). litellm prices in USD; `formatCost` in `HomePage.vue`
-converts to the chosen currency. Token counts are computed only to derive the price — they are
-**not** shown. Cost persists with the conversation via `SerializedMessage.cost`.
-
-## Language
-
-- While the codebase has support for chinese, we can concentrate on English for app development, omitting special needs for chinese.
+- `release/instant-use/manifest.xml` (hosted) and `release/self-hosted/manifest.xml` (local/Docker).
+- Backend serves the built frontend from `/dist`. CORS currently `allow_origins=["*"]` — restrict
+  in production.

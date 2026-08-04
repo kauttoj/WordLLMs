@@ -12,4 +12,7 @@ docker run -d --name wordllms -p 3000:8000 ^
   -v "%WORDLLMS_HOST_DIR%:/app/data" ^
   -e "WORDLLMS_HOST_PATH=%WORDLLMS_HOST_DIR%" ^
   kauttoj/wordllms
+
+docker image prune -f
+
 echo Profile data on host: %WORDLLMS_HOST_DIR%

@@ -4,6 +4,11 @@ from urllib.parse import urlparse
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
+try:
+    from .effort import resolve_effort
+except ImportError:  # direct execution (python main.py)
+    from effort import resolve_effort
+
 
 def _needs_responses_api(model: str) -> bool:
     return model.startswith("gpt-5.")
@@ -113,7 +118,13 @@ def _create_anthropic_model(
     max_retries: int = 3,
     reasoning_effort: str = "medium",
 ) -> BaseChatModel:
-    """Anthropic Foundry models (Claude series) hosted on Azure."""
+    """Anthropic Foundry models (Claude series) hosted on Azure.
+
+    Legacy path (WORDLLMS_USE_LEGACY=1). langchain_anthropic forwards `effort`
+    straight into `output_config.effort` with no per-model gating, and
+    Anthropic's API hard-400s on a tier the model doesn't support -- clamp via
+    resolve_effort first and omit the key entirely when unsupported.
+    """
     from langchain_anthropic import ChatAnthropic
 
     kwargs: dict[str, Any] = {
@@ -121,10 +132,14 @@ def _create_anthropic_model(
         "api_key": credentials["api_key"],
         "anthropic_api_url": f"https://{resource}.services.ai.azure.com/anthropic",
         "temperature": temperature,
-        "max_tokens": 16384,
+        # Thinking tokens draw from this same ceiling (see providers/base.py), so it
+        # must leave headroom for high-effort reasoning plus visible output.
+        "max_tokens": 65536,
         "max_retries": max_retries,
-        "effort": reasoning_effort,
     }
+    resolved = resolve_effort("azure", f"azure_ai/{model}", model, reasoning_effort)
+    if resolved.effective is not None:
+        kwargs["effort"] = resolved.effective
     if timeout is not None:
         kwargs["timeout"] = timeout
     return ChatAnthropic(**kwargs)

@@ -19,8 +19,10 @@ from .schemas import (
     ThreadSaveRequest, ProfilePathRequest,
     EditMessageRequest, TruncateRequest, ForkRequest,
     MCPServerAddRequest, MCPServerUpdateRequest,
+    AttachmentUploadRequest,
 )
-from .file_processing import format_attachments_for_message
+from .file_processing import compose_user_content
+from . import attachment_store
 from .image_proxy import ImageProxyError, fetch_image
 from .providers import create_model
 from .tools import get_tools, CLIENT_TOOLS, SERVER_TOOLS, CLIENT_TOOL_CATEGORY
@@ -30,6 +32,7 @@ from .conversation_store import ConversationStore
 from .mcp_integration import MCPClientManager
 from .profile_store import ProfileStore, get_browse_root, resolve_initial_profile_dir
 from . import pricing
+from .providers import effort
 
 import logging
 
@@ -53,9 +56,16 @@ def adjust_timeout_for_provider(timeout: int, provider: str) -> int:
 # active-profile pointer file. ConversationStore and MCPClientManager open
 # their files inside the profile folder it manages.
 profile_store = ProfileStore(resolve_initial_profile_dir())
+# Before ConversationStore: its delete_thread() removes the thread's attachment
+# folder, so the store must be pointed at the right profile from the outset.
+attachment_store.configure_attachments_dir(profile_store.attachments_path)
 conversation_store = ConversationStore(db_path=str(profile_store.db_path))
 mcp_manager = MCPClientManager(config_path=profile_store.mcp_config_path)
 pricing.configure_model_costs_path(profile_store.model_costs_path)
+effort.configure_model_efforts_path(profile_store.model_efforts_path)
+effort.log_override_status()
+# Drop attachment folders for conversations that no longer exist.
+attachment_store.sweep_orphans(conversation_store.list_known_ids())
 
 
 @asynccontextmanager
@@ -80,26 +90,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-MAX_ATTACHMENTS_BYTES = 50 * 1024 * 1024  # 50 MB total
-
 def inject_attachments(request: ChatRequest | AgentRequest | MultiAgentRequest) -> list[dict]:
-    """Parse file attachments and inject their content into the last user message.
+    """Resolve attachment refs to server-stored content and inject into the last user message.
 
-    Mutates request.messages in-place. For text files, appends parsed content
-    to the message. For images, converts to multimodal content format.
+    Attachments are id references only (see POST /api/attachments) — base64
+    already crossed the wire at upload time. Mutates request.messages in-place
+    via `compose_user_content`, the single code path shared with the
+    /api/conversation/edit handler, so a message restored from history is
+    byte-identical to a freshly sent one.
+
+    Raises HTTPException(400) — never sends silently — if conversation_id is
+    missing, if any referenced attachment is missing on server, or if the
+    target user message isn't plain text.
 
     Returns list of truncation warnings (empty if none).
     """
     if not request.attachments:
         return []
 
-    # Enforce total size limit
-    total_bytes = sum(len(a.data) for a in request.attachments)
-    if total_bytes > MAX_ATTACHMENTS_BYTES:
-        raise ValueError(f"Total attachment size ({total_bytes} bytes) exceeds 50MB limit")
+    if not request.conversation_id:
+        raise HTTPException(
+            status_code=400,
+            detail="conversation_id is required when attachments are present",
+        )
 
-    att_dicts = [{"filename": a.filename, "data": a.data} for a in request.attachments]
-    text_block, image_parts, truncation_warnings = format_attachments_for_message(att_dicts, request.attachment_char_limit)
+    refs = [{"id": a.id, "filename": a.filename} for a in request.attachments]
+    items, missing_ids = attachment_store.load_for_injection(request.conversation_id, refs)
+    if missing_ids:
+        missing_filenames = [a.filename for a in request.attachments if a.id in missing_ids]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Attachment content missing on server: {', '.join(missing_filenames)}",
+        )
 
     # Find last user message
     user_msg = None
@@ -108,22 +130,16 @@ def inject_attachments(request: ChatRequest | AgentRequest | MultiAgentRequest) 
             user_msg = msg
             break
     if user_msg is None:
-        raise ValueError("No user message found to attach files to")
+        raise HTTPException(status_code=400, detail="No user message found to attach files to")
+    if not isinstance(user_msg.content, str):
+        raise HTTPException(
+            status_code=400,
+            detail="User message content must be plain text before attachments are injected",
+        )
 
-    if image_parts:
-        # Convert to multimodal content list
-        original = user_msg.content if isinstance(user_msg.content, str) else ""
-        user_msg.content = [
-            {"type": "text", "text": original + text_block},
-            *image_parts,
-        ]
-    elif text_block:
-        if isinstance(user_msg.content, str):
-            user_msg.content += text_block
-        else:
-            # Already a list (shouldn't happen without images, but handle gracefully)
-            user_msg.content.insert(0, {"type": "text", "text": text_block})
-
+    user_msg.content, truncation_warnings = compose_user_content(
+        user_msg.content, items, request.attachment_char_limit,
+    )
     return truncation_warnings
 
 
@@ -169,6 +185,16 @@ async def list_tools():
                   "description": "Search the web for current information."})
     return {"tools": tools}
 
+@app.get("/api/model-capabilities")
+async def model_capabilities(provider: str, model: str = ""):
+    """What reasoning-effort tiers does (provider, model) support?
+
+    Pure capability lookup: takes no credentials and makes no upstream call.
+    Backs the Settings reasoning-effort dropdown so it only offers tiers the
+    selected model actually supports.
+    """
+    return effort.supported_ladder(provider, model)
+
 @app.get("/api/proxy/image")
 async def proxy_image(url: str):
     """Fetch a remote image server-side for the `insert_image` Word tool.
@@ -195,6 +221,21 @@ async def proxy_image(url: str):
 async def context_stats(conversation_id: str):
     chars, tokens = conversation_store.get_context_stats(conversation_id)
     return {"chars": chars, "tokens": tokens}
+
+@app.post("/api/attachments")
+def upload_attachments(request: AttachmentUploadRequest):
+    """Upload attachment files once; returns ids to reference from /api/chat,
+    /api/agent, /api/multiagent, and /api/conversation/edit.
+
+    Sync `def` (not `async def`) so FastAPI runs it in its threadpool — parsing
+    (MarkItDown, base64 decode) must never block the event loop.
+    """
+    try:
+        files = [{"filename": f.filename, "data": f.data} for f in request.files]
+        results = attachment_store.save_attachments(request.conversation_id, files)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"attachments": results}
 
 # --- Chat Endpoint (Standard Stream) ---
 @app.post("/api/chat")
@@ -511,9 +552,27 @@ async def list_mcp_server_tools(server_id: str):
 
 # --- Thread CRUD Endpoints (GUI display history) ---
 
+def _annotate_attachments(thread: dict) -> dict:
+    """Mark each message attachment ref with whether its content still resolves on disk.
+
+    Operates on the freshly-deserialized dict returned by ConversationStore
+    (json.loads per call), not the stored DB row, so this never mutates what's
+    persisted — only the response.
+    """
+    available = attachment_store.available_ids(thread["id"])
+    for msg in thread.get("messages", []):
+        atts = msg.get("attachments")
+        if not atts:
+            continue
+        for att in atts:
+            att["available"] = att.get("id") in available if "id" in att else False
+    return thread
+
+
 @app.get("/api/threads")
 async def list_threads(limit: int = 50):
     threads = conversation_store.list_threads(limit=limit)
+    threads = [_annotate_attachments(t) for t in threads]
     return {"threads": threads}
 
 
@@ -522,6 +581,7 @@ async def get_thread(thread_id: str):
     thread = conversation_store.get_thread(thread_id)
     if thread is None:
         return {"thread": None}
+    thread = _annotate_attachments(thread)
     return {"thread": thread}
 
 
@@ -552,8 +612,19 @@ async def delete_thread(thread_id: str):
 
 @app.post("/api/conversation/edit")
 async def edit_message(request: EditMessageRequest):
+    refs = [{"id": a.id, "filename": a.filename} for a in request.attachments]
+    items, missing_ids = attachment_store.load_for_injection(request.conversation_id, refs)
+    if missing_ids:
+        missing_filenames = [a.filename for a in request.attachments if a.id in missing_ids]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Attachment content missing on server: {', '.join(missing_filenames)}",
+        )
+    content, _truncation_warnings = compose_user_content(
+        request.new_content, items, request.attachment_char_limit,
+    )
     conversation_store.edit_user_message(
-        request.conversation_id, request.turn, request.new_content,
+        request.conversation_id, request.turn, content,
     )
     return {"ok": True}
 
@@ -571,6 +642,8 @@ async def fork_conversation(request: ForkRequest):
         request.target_conversation_id,
         request.up_to_turn,
     )
+    # So the forked thread's attachment refs still resolve to content.
+    attachment_store.copy_conversation(request.source_conversation_id, request.target_conversation_id)
     return {"ok": True}
 
 
@@ -625,10 +698,19 @@ async def set_profile_path(request: ProfilePathRequest):
         # Active streams — frontend should have disabled the UI, but enforce here too.
         raise HTTPException(status_code=409, detail=str(e))
 
+    # Repoint the attachment store first: ConversationStore.delete_thread deletes
+    # the matching attachment folder, so the two must never point at different
+    # profiles, not even briefly.
+    attachment_store.configure_attachments_dir(profile_store.attachments_path)
+
     # Reopen conversation DB and reload MCP servers against the new folder.
     conversation_store.switch_database(str(profile_store.db_path))
     await mcp_manager.reload_from(profile_store.mcp_config_path)
     pricing.configure_model_costs_path(profile_store.model_costs_path)
+    effort.configure_model_efforts_path(profile_store.model_efforts_path)
+    effort.log_override_status()
+    # Sweep only after the new DB is open — known_ids must come from it.
+    attachment_store.sweep_orphans(conversation_store.list_known_ids())
 
     return profile_store.snapshot()
 

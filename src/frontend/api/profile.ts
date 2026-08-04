@@ -56,7 +56,7 @@ const PROFILE_SETTING_KEYS = new Set<string>([
   'anthropicCustomModel', 'anthropicCustomModels', 'anthropicTemperature',
   'anthropicMaxContextTokens',
   // TogetherAI
-  'togetheraiAPIKey', 'togetheraiTemperature', 'togetheraiMaxContextTokens',
+  'togetheraiAPIKey', 'togetheraiReasoningEffort', 'togetheraiTemperature', 'togetheraiMaxContextTokens',
   'togetheraiModel', 'togetheraiCustomModel', 'togetheraiCustomModels',
   // Tool prefs + MCP + multiagent + proxy
   'enabledWordTools', 'enabledGeneralTools', 'enabledMcpTools',

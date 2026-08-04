@@ -39,6 +39,24 @@
             <option value="">{{ t('noModelsConfigured') }}</option>
           </select>
         </div>
+
+        <div v-if="!isEffortHidden(expert)" class="flex flex-col gap-2">
+          <label class="text-sm">{{ t('multiagentReasoningEffortLabel') }}</label>
+          <select
+            :value="expert.reasoningEffort || ''"
+            class="rounded-md border px-3 py-2"
+            @change="setEffort(expert, ($event.target as HTMLSelectElement).value)"
+          >
+            <option value="">{{ t('multiagentInheritEffort') }}</option>
+            <option v-for="tier in effortOptions(expert)" :key="tier" :value="tier">{{ tier }}</option>
+          </select>
+          <div
+            v-if="effortNotice(expert)"
+            class="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-700 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
+          >
+            {{ effortNotice(expert) }}
+          </div>
+        </div>
       </div>
     </SettingCard>
 
@@ -67,6 +85,24 @@
           <select v-else disabled class="cursor-not-allowed rounded-md border px-3 py-2 opacity-50">
             <option value="">{{ t('noModelsConfigured') }}</option>
           </select>
+        </div>
+
+        <div v-if="!isEffortHidden(config.overseer)" class="flex flex-col gap-2">
+          <label class="text-sm">{{ t('multiagentReasoningEffortLabel') }}</label>
+          <select
+            :value="config.overseer.reasoningEffort || ''"
+            class="rounded-md border px-3 py-2"
+            @change="setEffort(config.overseer, ($event.target as HTMLSelectElement).value)"
+          >
+            <option value="">{{ t('multiagentInheritEffort') }}</option>
+            <option v-for="tier in effortOptions(config.overseer)" :key="tier" :value="tier">{{ tier }}</option>
+          </select>
+          <div
+            v-if="effortNotice(config.overseer)"
+            class="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-700 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
+          >
+            {{ effortNotice(config.overseer) }}
+          </div>
         </div>
       </div>
     </SettingCard>
@@ -98,6 +134,20 @@
             <select v-else disabled class="cursor-not-allowed rounded-md border px-3 py-2 opacity-50">
             <option value="">{{ t('noModelsConfigured') }}</option>
           </select>
+          </div>
+
+          <div v-if="config.formatter && !isEffortHidden(config.formatter)" class="flex flex-col gap-2">
+            <label class="text-sm">{{ t('multiagentReasoningEffortLabel') }}</label>
+            <select v-model="formatterEffort" class="rounded-md border px-3 py-2">
+              <option value="">{{ t('multiagentInheritEffort') }}</option>
+              <option v-for="tier in effortOptions(config.formatter)" :key="tier" :value="tier">{{ tier }}</option>
+            </select>
+            <div
+              v-if="effortNotice(config.formatter)"
+              class="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-700 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
+            >
+              {{ effortNotice(config.formatter) }}
+            </div>
           </div>
         </div>
       </SettingCard>
@@ -150,9 +200,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { CONSERVATIVE_EFFORTS, fetchEffortCapability, type ModelCapability } from '@/api/modelCapabilities'
 import type { MultiAgentConfig, supportedProviders } from '@/api/types'
 import {
   availableAPIs,
@@ -211,6 +262,117 @@ const formatterModel = computed({
     config.value.formatter!.model = val
   },
 })
+
+const formatterEffort = computed({
+  get: () => config.value.formatter?.reasoningEffort ?? '',
+  set: (val: string) => {
+    ensureFormatter()
+    config.value.formatter!.reasoningEffort = val
+  },
+})
+
+// ---------------------------------------------------------------------------
+// Per-role reasoning effort
+//
+// Each role's effort defaults to '' = inherit whatever the provider's own
+// settings sheet holds. An explicit tier overrides it, which is the point: the
+// supported tiers are a property of the *model*, not the provider, so a role
+// running a different model than the provider sheet's needs its own value.
+// The offered ladder therefore comes from the same live per-model endpoint the
+// provider sheet uses, so the two cannot disagree.
+// ---------------------------------------------------------------------------
+
+interface EffortRole {
+  provider: supportedProviders
+  model: string
+  reasoningEffort?: string
+}
+
+const EFFORT_TIER_ORDER = ['none', 'low', 'medium', 'high', 'xhigh', 'max']
+
+// Keyed `${provider}:${model}` rather than by role, so two roles on the same
+// model share one entry. `null` means the fetch failed; a missing entry just
+// means "not fetched yet", which shows the conservative ladder without a notice.
+const capabilities = ref<Record<string, ModelCapability | null>>({})
+
+const capabilityFor = (role: EffortRole): ModelCapability | null | undefined =>
+  role.model ? capabilities.value[`${role.provider}:${role.model}`] : undefined
+
+const effortOptions = (role: EffortRole): string[] => {
+  const capability = capabilityFor(role)
+  return capability?.supported_efforts.length ? capability.supported_efforts : CONSERVATIVE_EFFORTS
+}
+
+// Hidden only when the model is confirmed to have no reasoning tiers at all
+// (e.g. gpt-4.1) — an unfetched or failed lookup still shows the control.
+const isEffortHidden = (role: EffortRole): boolean => capabilityFor(role)?.supported_efforts.length === 0
+
+const effortNotice = (role: EffortRole): string => {
+  const capability = capabilityFor(role)
+  if (capability === null) return t('modelCapabilitiesNotice')
+  if (!capability) return ''
+  if (capability.warnings.length) return capability.warnings.join(' ')
+  if (capability.source === 'inferred' || capability.source === 'fallback') return t('modelCapabilitiesNotice')
+  return ''
+}
+
+const setEffort = (role: EffortRole, value: string) => {
+  role.reasoningEffort = value
+}
+
+// Snap a stale override (e.g. `max` saved against Sonnet, model switched to a
+// model capping at `high`) to the nearest tier the new ladder supports, so the
+// form never holds a value its own dropdown can't render. Mirrors the backend
+// clamp in providers/effort.py — nearest LOWER tier first.
+const coerceEffort = (role: EffortRole, capability: ModelCapability) => {
+  const current = role.reasoningEffort
+  if (!current) return // inheriting; the provider sheet's value is clamped backend-side
+  const ladder = capability.supported_efforts
+  if (ladder.length === 0) {
+    role.reasoningEffort = '' // control is hidden — don't keep invisible state
+    return
+  }
+  if (ladder.includes(current)) return
+
+  const idx = EFFORT_TIER_ORDER.indexOf(current)
+  let next = ''
+  if (idx !== -1) {
+    for (let i = idx - 1; i >= 0 && !next; i--) {
+      if (ladder.includes(EFFORT_TIER_ORDER[i])) next = EFFORT_TIER_ORDER[i]
+    }
+    for (let i = idx + 1; i < EFFORT_TIER_ORDER.length && !next; i++) {
+      if (ladder.includes(EFFORT_TIER_ORDER[i])) next = EFFORT_TIER_ORDER[i]
+    }
+  }
+  if (!next) next = ladder.includes(capability.default_effort) ? capability.default_effort : ladder[0]
+  role.reasoningEffort = next
+}
+
+// A failed fetch must degrade to the conservative ladder + a notice, never
+// throw out of the watcher and break the rest of the settings sheet.
+const loadCapability = async (role: EffortRole) => {
+  if (!role.model) return
+  const key = `${role.provider}:${role.model}`
+  try {
+    const capability = await fetchEffortCapability(role.provider, role.model)
+    capabilities.value[key] = capability
+    coerceEffort(role, capability)
+  } catch (error) {
+    console.error(`[MultiAgentSettings] Failed to load model capabilities for ${key}:`, error)
+    capabilities.value[key] = null
+  }
+}
+
+const effortRoles = computed<EffortRole[]>(() => {
+  const roles: EffortRole[] = [...config.value.experts, config.value.overseer]
+  if (config.value.formatter) roles.push(config.value.formatter)
+  return roles
+})
+
+// Deep so a provider/model change on any role refetches. Unrelated edits (e.g.
+// renaming an expert) also fire it, but fetchEffortCapability is memoized per
+// provider:model, so those never reach the network.
+watch(effortRoles, roles => roles.forEach(role => void loadCapability(role)), { deep: true, immediate: true })
 
 // Preset (built-in) models per provider. Custom models are appended reactively
 // from the shared settingForm singleton (key `${provider}CustomModels`), so models

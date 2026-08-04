@@ -101,6 +101,7 @@ export const Setting_Names = [
   'togetheraiCustomModel',
   'togetheraiCustomModels',
   'togetheraiModelSelect',
+  'togetheraiReasoningEffort',
   'togetheraiTemperature',
   'togetheraiMaxContextTokens',
   'systemPrompt',
@@ -202,6 +203,10 @@ export const settingPreset = {
   openaiCustomModel: inputSetting('', 'customModel'),
   openaiCustomModels: customModelsetting('customModels', 'customModel'),
   openaiTemperature: inputNumSetting(1.0, 'temperature', 'temperature'),
+  // `optionList` below is only the conservative fallback shown while/if the
+  // live `/api/model-capabilities` ladder (fetched per selected model in
+  // SettingsPage.vue) is unavailable. The endpoint is the authority on which
+  // tiers a given model actually supports.
   openaiReasoningEffort: selectSetting('medium', 'openaiReasoningEffort', ['low', 'medium', 'high']),
   openaiMaxContextTokens: inputNumSetting(128000, 'maxContextTokens', 'maxTokens'),
   openaiModelSelect: selectSetting('gpt-5', 'model', availableModels),
@@ -249,6 +254,7 @@ export const settingPreset = {
   togetheraiCustomModel: inputSetting(''),
   togetheraiCustomModels: customModelsetting('togetheraiCustomModels', 'togetheraiCustomModel'),
   togetheraiModelSelect: selectSetting('meta-llama/Llama-3.3-70B-Instruct-Turbo', 'togetheraiModel', availableModelsForTogetherAI),
+  togetheraiReasoningEffort: selectSetting('medium', 'togetheraiReasoningEffort', ['low', 'medium', 'high']),
   togetheraiTemperature: inputNumSetting(1.0, 'togetheraiTemperature', 'temperature'),
   togetheraiMaxContextTokens: inputNumSetting(128000, 'togetheraiMaxContextTokens', 'maxTokens'),
   systemPrompt: inputSetting('', 'defaultSystemPrompt'),

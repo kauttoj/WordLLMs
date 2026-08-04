@@ -2,9 +2,12 @@
 
 A profile is a single folder containing:
   conversations.db    (managed by ConversationStore)
+  attachments/        (per-conversation attachment files, managed by attachment_store)
   settings.json       (provider creds, agent params, tool prefs, language, multiAgentConfig, proxy)
   prompts.json        (quick actions, system prompt presets, defaults)
   mcp_servers.json    (managed by MCPClientManager)
+  model_costs.json    (optional, hand-edited per-model price overrides)
+  model_efforts.json  (optional, hand-edited per-model reasoning-effort overrides)
   data_version.json   (schema version stamp)
 
 The active profile folder is tracked by a pointer file at
@@ -128,6 +131,9 @@ class ProfileStore:
                     + list(d.glob("*.json"))
                 ):
                     shutil.move(str(f), str(archive_dir / f.name))
+                attachments_dir = d / "attachments"
+                if attachments_dir.exists():
+                    shutil.move(str(attachments_dir), str(archive_dir / "attachments"))
                 print(
                     f"[ProfileStore] Data version mismatch (stored={stored}, "
                     f"current={DATA_VERSION}). Old data archived to {archive_dir}"
@@ -145,12 +151,20 @@ class ProfileStore:
         return self._dir / "conversations.db"
 
     @property
+    def attachments_path(self) -> Path:
+        return self._dir / "attachments"
+
+    @property
     def mcp_config_path(self) -> Path:
         return self._dir / "mcp_servers.json"
 
     @property
     def model_costs_path(self) -> Path:
         return self._dir / "model_costs.json"
+
+    @property
+    def model_efforts_path(self) -> Path:
+        return self._dir / "model_efforts.json"
 
     # --- In-flight stream tracking (used by SSE handlers) ---
 

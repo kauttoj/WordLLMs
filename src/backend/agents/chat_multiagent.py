@@ -309,27 +309,27 @@ def get_model(config: dict, role: str, index: int = 0) -> BaseChatModel:
         return config["configurable"]["synthesizer_model"]
     raise ValueError(f"Unknown role {role}")
 
-def _append_cost(acc: list | None, model: BaseChatModel, response) -> None:
-    """Append one LLM call's cost dict to a shared accumulator list.
+def _append_cost(model: BaseChatModel, response) -> dict | None:
+    """Price one LLM call and return its cost dict.
 
-    No-op when the call has no usage (e.g. structured-output parses) — pricing
-    returns None, which aggregate_costs ignores.
+    Falls back to pricing.unknown_cost(model) when usage can't be determined,
+    so the caller always gets a non-None payload to attach to its bubble.
     """
-    if acc is None:
-        return
     in_tok, out_tok = pricing.usage_from_message(response)
-    acc.append(pricing.compute_cost(model, input_tokens=in_tok, output_tokens=out_tok))
+    return pricing.compute_cost(model, input_tokens=in_tok, output_tokens=out_tok) or pricing.unknown_cost(model)
 
 
-def _record_cost(config: dict, model: BaseChatModel, response) -> None:
-    """Append this in-graph LLM call's cost to the per-response accumulator.
+def _record_cost(model: BaseChatModel, response) -> dict | None:
+    """Price this in-graph LLM call and stash the result onto the response.
 
-    A multiagent response = many LLM calls (experts, synthesizer, overseer),
-    each possibly a different model. Costs are collected in
-    config["configurable"]["cost_acc"] and summed at the done event via
-    pricing.aggregate_costs.
+    Each multiagent LLM call (expert/synthesizer/overseer) prices itself and
+    attaches the cost to its own response message via
+    response_metadata["wordllms_cost"], so the stream processor can read it
+    back per-bubble without needing model context. Returns the cost too.
     """
-    _append_cost(config["configurable"].get("cost_acc"), model, response)
+    cost = _append_cost(model, response)
+    response.response_metadata["wordllms_cost"] = cost
+    return cost
 
 
 def get_llm_timeout(config: dict) -> int:
@@ -636,7 +636,7 @@ def parallel_expert_node(state: MultiAgentState, config):
     print(f"[MultiAgent:ParallelExpert]   Invoking model...")
     model_with_tools = bind_tools_compat(model, tools)
     response = invoke_with_timeout(model_with_tools, messages, get_llm_timeout(config), label=expert_name)
-    _record_cost(config, model, response)
+    _record_cost(model, response)
 
     # If tool calls, add to history temporarily for execution
     if response.tool_calls:
@@ -650,6 +650,7 @@ def parallel_expert_node(state: MultiAgentState, config):
     content_text = extract_text_from_content(response.content)
     print(f"[MultiAgent:ParallelExpert]   Response text: {content_text[:100]}...")
     return {
+        "messages": [response],
         "parallel_responses": {expert_name: content_text},
         "current_expert_index": idx + 1,
     }
@@ -701,7 +702,7 @@ def parallel_tool_post_processing_node(state: MultiAgentState, config):
     print(f"[MultiAgent:ParallelPostProcess]   Invoking model for refinement...")
     model_with_tools = bind_tools_compat(model, tools)
     response = invoke_with_timeout(model_with_tools, messages, get_llm_timeout(config), label=f"{expert_name}:PostProcess")
-    _record_cost(config, model, response)
+    _record_cost(model, response)
 
     # If more tool calls, track caller for routing
     if response.tool_calls:
@@ -739,16 +740,18 @@ async def _run_single_expert_async(
     llm_timeout: int,
     max_tool_rounds: int,
     additional_system_prompt: str = "",
-    cost_acc: list | None = None,
-) -> tuple[str, str, list[dict]]:
+) -> tuple[str, str, list[dict], dict | None]:
     """Run a single expert asynchronously outside LangGraph.
 
     Server tools execute inline. Client tools suspend on ToolBroker futures.
-    Returns (expert_name, response_text, buffered_sse_events).
+    Returns (expert_name, response_text, buffered_sse_events, cost). ``cost``
+    aggregates this expert's own tool-round LLM calls into one same-bubble,
+    same-speaker total (never merged with any other expert's cost).
     On failure, calls broker.expert_completed() and re-raises.
     """
     expert_name = f"Expert_{idx+1}"
     tool_events: list[dict] = []
+    expert_costs: list[dict | None] = []
 
     try:
         model_name = get_model_name(model)
@@ -793,7 +796,7 @@ async def _run_single_expert_async(
             response = await ainvoke_with_timeout(
                 model_with_tools, messages, llm_timeout, label=expert_name
             )
-            _append_cost(cost_acc, model, response)
+            expert_costs.append(_append_cost(model, response))
 
             if not response.tool_calls:
                 content_text = extract_text_from_content(response.content)
@@ -804,7 +807,7 @@ async def _run_single_expert_async(
                     content_text = "(Expert provided tool results but no final summary.)"
                 print(f"[MultiAgent:AsyncExpert]   {expert_name} done: {content_text[:100]}...")
                 broker.expert_completed()
-                return expert_name, content_text, tool_events
+                return expert_name, content_text, tool_events, pricing.aggregate_costs(expert_costs)
 
             # Process tool calls
             print(f"[MultiAgent:AsyncExpert]   {expert_name} tool calls: {[tc['name'] for tc in response.tool_calls]}")
@@ -892,7 +895,7 @@ def synthesizer_node(state: MultiAgentState, config):
     print(f"[MultiAgent:Synthesizer]   Invoking model...")
     model_with_tools = bind_tools_compat(model, tools)
     response = invoke_with_timeout(model_with_tools, messages, get_llm_timeout(config), label="Synthesizer")
-    _record_cost(config, model, response)
+    _record_cost(model, response)
 
     # Tag the synthesizer response
     response.name = "Synthesizer"
@@ -983,9 +986,10 @@ def collab_expert_node(state: MultiAgentState, config):
             bound_model = bind_tools_compat(model, tools)
         else:
             bound_model = model
+        expert_cost = None
         for empty_attempt in range(MAX_EMPTY_RETRIES + 1):
             response = invoke_with_timeout(bound_model, messages, get_llm_timeout(config), label=expert_name)
-            _record_cost(config, model, response)
+            expert_cost = _record_cost(model, response)
             print(f"[MultiAgent:CollabExpert]   Stop reason: {_get_stop_reason(response)}")
             response.name = expert_name
 
@@ -1040,7 +1044,10 @@ def collab_expert_node(state: MultiAgentState, config):
             formatted = invoke_with_timeout(
                 structured_formatter, format_messages, get_llm_timeout(config), label=f"{expert_name}_formatter"
             )
-            _record_cost(config, formatter_model_obj, formatted["raw"])
+            formatter_cost = _record_cost(formatter_model_obj, formatted["raw"])
+            # Same-bubble merge: this expert turn cost two LLM calls (the expert
+            # itself + the formatter fallback), both billed to one public bubble.
+            expert_cost = pricing.aggregate_costs([expert_cost, formatter_cost])
             output = formatted["parsed"]
             if output is None:
                 raise ValueError(
@@ -1059,6 +1066,7 @@ def collab_expert_node(state: MultiAgentState, config):
         # Create XML-tagged message for shared history (same as combined mode)
         public_content = f"<{expert_name}>\n{output.public_response}\n</{expert_name}>"
         public_msg = AIMessage(content=public_content, name=expert_name)
+        public_msg.response_metadata["wordllms_cost"] = expert_cost
 
         next_idx = idx + 1
         print(f"[MultiAgent:CollabExpert]   Moving to next expert (index {next_idx})")
@@ -1072,9 +1080,10 @@ def collab_expert_node(state: MultiAgentState, config):
         # Combined mode: bind both tools and structured output schema on a single call
         print(f"[MultiAgent:CollabExpert]   Invoking model (tools + structured output)...")
         bound_model = bind_tools_and_schema(model, tools, ExpertOutput)
+        expert_cost = None
         for empty_attempt in range(MAX_EMPTY_RETRIES + 1):
             response = invoke_with_timeout(bound_model, messages, get_llm_timeout(config), label=expert_name)
-            _record_cost(config, model, response)
+            expert_cost = _record_cost(model, response)
             print(f"[MultiAgent:CollabExpert]   Stop reason: {_get_stop_reason(response)}")
 
             # Tag message with expert name
@@ -1111,6 +1120,7 @@ def collab_expert_node(state: MultiAgentState, config):
         # Create XML-tagged message for shared history
         public_content = f"<{expert_name}>\n{output.public_response}\n</{expert_name}>"
         public_msg = AIMessage(content=public_content, name=expert_name)
+        public_msg.response_metadata["wordllms_cost"] = expert_cost
 
         next_idx = idx + 1
         print(f"[MultiAgent:CollabExpert]   Moving to next expert (index {next_idx})")
@@ -1165,7 +1175,7 @@ def overseer_node(state: MultiAgentState, config):
     # for cost accounting — do not "simplify" this back to a bare parsed object.
     decider = with_structured_output_compat(model, OverseerDecision, include_raw=True)
     decided = invoke_with_timeout(decider, messages, get_llm_timeout(config), label="Overseer")
-    _record_cost(config, model, decided["raw"])
+    overseer_cost = _record_cost(model, decided["raw"])
     output: OverseerDecision = decided["parsed"]
     if output is None:
         raise ValueError(
@@ -1180,6 +1190,7 @@ def overseer_node(state: MultiAgentState, config):
     # Store decision + reasoning so final_answer model has useful context
     decision_content = f"{output.decision}: {output.reasoning_feedback}"
     feedback_msg = AIMessage(content=decision_content, name="Overseer")
+    feedback_msg.response_metadata["wordllms_cost"] = overseer_cost
 
     if output.decision == "CONCLUDE" or state["current_round"] >= state["max_rounds"]:
         print(f"[MultiAgent:Overseer]   -> Moving to final_answer")
@@ -1236,7 +1247,7 @@ def final_answer_node(state: MultiAgentState, config):
     print(f"[MultiAgent:FinalAnswer]   Invoking model...")
     model_with_tools = bind_tools_compat(model, tools)
     response = invoke_with_timeout(model_with_tools, messages, get_llm_timeout(config), label="FinalAnswer")
-    _record_cost(config, model, response)
+    _record_cost(model, response)
     response.name = "Overseer"
 
     # Track caller for routing
@@ -1494,20 +1505,24 @@ async def _process_multiagent_stream(event_stream, valid_tool_names: set[str] | 
             msgs = output.get("messages", [])
             parallel_resp = output.get("parallel_responses", {})
 
+            # Per-call cost stashed onto the response by _record_cost, read back here
+            # so each bubble carries its own price instead of a single turn-level sum.
+            msg_cost = msgs[0].response_metadata.get("wordllms_cost") if msgs else None
+
             if node == "parallel_expert":
                 if parallel_resp:
                     # No tool calls — emit complete expert response from parallel_responses
                     expert_name = list(parallel_resp.keys())[0]
                     content_text = list(parallel_resp.values())[0]
                     if content_text:
-                        yield {"event": "message", "data": {"content": content_text, "speaker": expert_name}}
+                        yield {"event": "message", "data": {"content": content_text, "speaker": expert_name, "cost": msg_cost}}
                 elif msgs:
                     # Has tool calls — emit pre-tool text if any (e.g. "Let me search...")
                     content = extract_text_from_content(msgs[0].content)
                     if content:
                         if not current_speaker:
                             raise ValueError(f"[MultiAgentStream] BUG: Emitting message with speaker=None (node=parallel_expert). Every multiagent event must have a valid speaker.")
-                        yield {"event": "message", "data": {"content": content, "speaker": current_speaker}}
+                        yield {"event": "message", "data": {"content": content, "speaker": current_speaker, "cost": msg_cost}}
 
             elif node == "parallel_post_process":
                 if parallel_resp:
@@ -1515,14 +1530,14 @@ async def _process_multiagent_stream(event_stream, valid_tool_names: set[str] | 
                     expert_name = list(parallel_resp.keys())[0]
                     content_text = extract_text_from_content(msgs[0].content) if msgs else ""
                     if content_text:
-                        yield {"event": "message", "data": {"content": content_text, "speaker": expert_name}}
+                        yield {"event": "message", "data": {"content": content_text, "speaker": expert_name, "cost": msg_cost}}
                 elif msgs:
                     # Has tool calls — emit pre-tool text if any
                     content = extract_text_from_content(msgs[0].content)
                     if content:
                         if not current_speaker:
                             raise ValueError(f"[MultiAgentStream] BUG: Emitting message with speaker=None (node=parallel_post_process). Every multiagent event must have a valid speaker.")
-                        yield {"event": "message", "data": {"content": content, "speaker": current_speaker}}
+                        yield {"event": "message", "data": {"content": content, "speaker": current_speaker, "cost": msg_cost}}
 
             elif node == "collab_expert":
                 if msgs:
@@ -1535,7 +1550,7 @@ async def _process_multiagent_stream(event_stream, valid_tool_names: set[str] | 
                             content_text = content_text.replace(tag, "")
                         content_text = content_text.strip()
                         if content_text:
-                            yield {"event": "message", "data": {"content": content_text, "speaker": speaker, "round": current_round}}
+                            yield {"event": "message", "data": {"content": content_text, "speaker": speaker, "round": current_round, "cost": msg_cost}}
 
             elif node == "overseer":
                 if msgs:
@@ -1543,19 +1558,19 @@ async def _process_multiagent_stream(event_stream, valid_tool_names: set[str] | 
                     if full_content:
                         # Extract just the decision word (before colon) for the GUI
                         decision = full_content.split(":")[0].strip()
-                        yield {"event": "overseer_decision", "data": {"decision": decision, "speaker": "Overseer"}}
+                        yield {"event": "overseer_decision", "data": {"decision": decision, "speaker": "Overseer", "cost": msg_cost}}
 
             elif node == "synthesizer":
                 if msgs and msgs[0].content:
                     content_text = extract_text_from_content(msgs[0].content)
                     if content_text:
-                        yield {"event": "message", "data": {"content": content_text, "speaker": "Synthesizer"}}
+                        yield {"event": "message", "data": {"content": content_text, "speaker": "Synthesizer", "cost": msg_cost}}
 
             elif node == "final_answer":
                 if msgs:
                     content = extract_text_from_content(msgs[0].content)
                     if content:
-                        yield {"event": "message", "data": {"content": content, "speaker": "Overseer"}}
+                        yield {"event": "message", "data": {"content": content, "speaker": "Overseer", "cost": msg_cost}}
 
 
 # --- 7. Result Extraction Helper ---
@@ -1647,16 +1662,16 @@ async def _monitor_parallel_experts(
             for t in done:
                 if t is blocker_task:
                     continue
-                expert_name, content_text, tool_events = t.result()  # raises on failure
+                expert_name, content_text, tool_events, cost = t.result()  # raises on failure
                 parallel_responses[expert_name] = content_text
-                completed_experts.append((expert_name, content_text, tool_events))
+                completed_experts.append((expert_name, content_text, tool_events, cost))
 
             # Yield each completed expert's events as an atomic block immediately
-            for expert_name, content_text, tool_events in completed_experts:
+            for expert_name, content_text, tool_events, cost in completed_experts:
                 print(f"[MultiAgent:ParallelAsync] {expert_name} completed — flushing events")
                 for te in tool_events:
                     yield te
-                yield {"event": "message", "data": {"content": content_text, "speaker": expert_name}}
+                yield {"event": "message", "data": {"content": content_text, "speaker": expert_name, "cost": cost}}
 
             remaining = [t for t in tasks if not t.done()]
 
@@ -1711,7 +1726,6 @@ async def _run_parallel_experts(
     session_id: str,
     max_tool_rounds: int,
     additional_system_prompt: str = "",
-    cost_acc: list | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Run all experts in parallel and yield SSE events.
 
@@ -1740,7 +1754,6 @@ async def _run_parallel_experts(
             llm_timeout=llm_timeout,
             max_tool_rounds=max_tool_rounds,
             additional_system_prompt=additional_system_prompt,
-            cost_acc=cost_acc,
         ))
         tasks.append(task)
 
@@ -1864,10 +1877,6 @@ async def stream_multiagent(
             "llm_timeout": llm_timeout,
             "legacy_mode": legacy_mode,
             "formatter_model": formatter_model,
-            # Shared per-response cost accumulator: every expert/synth/overseer
-            # LLM call appends its cost dict; summed at the done event. Persists
-            # across stream->resume via _session_config_cache.
-            "cost_acc": [],
         },
         "recursion_limit": recursion_limit
     }
@@ -1927,7 +1936,6 @@ async def stream_multiagent(
                 session_id=thread_id,
                 max_tool_rounds=recursion_limit,
                 additional_system_prompt=additional_system_prompt or "",
-                cost_acc=config["configurable"]["cost_acc"],
             ):
                 if event["event"] == "_experts_done":
                     parallel_responses = event["data"]["parallel_responses"]
@@ -2035,8 +2043,9 @@ async def stream_multiagent(
                         conversation_id, turn, persona, mode, public_response,
                     )
                 conversation_store.unregister_thread(thread_id)
-            cost = pricing.aggregate_costs(config["configurable"].get("cost_acc", []))
-            yield {"event": "done", "data": {"finish_reason": "stop", "cost": cost}}
+            # No turn-level cost here: each bubble already carries its own price
+            # via data["cost"] on the "message"/"overseer_decision" SSE events.
+            yield {"event": "done", "data": {"finish_reason": "stop"}}
             _session_config_cache.pop(thread_id, None)
             _session_graph_cache.pop(thread_id, None)
 
@@ -2127,8 +2136,9 @@ async def resume_multiagent(
                     if public_response:
                         conv_store.add_public_response(conv_id, turn, persona, mode, public_response)
                     conv_store.unregister_thread(multiagent_session_id)
-                cost = pricing.aggregate_costs(config["configurable"].get("cost_acc", []))
-                yield {"event": "done", "data": {"finish_reason": "stop", "cost": cost}}
+                # No turn-level cost here: each bubble already carries its own price
+                # via data["cost"] on the "message"/"overseer_decision" SSE events.
+                yield {"event": "done", "data": {"finish_reason": "stop"}}
                 _session_config_cache.pop(multiagent_session_id, None)
                 _session_graph_cache.pop(multiagent_session_id, None)
 
@@ -2228,8 +2238,9 @@ async def resume_multiagent(
                             persona, state_mode, public_response,
                         )
                     conversation_store.unregister_thread(multiagent_session_id)
-            cost = pricing.aggregate_costs(config["configurable"].get("cost_acc", []))
-            yield {"event": "done", "data": {"finish_reason": "stop", "cost": cost}}
+            # No turn-level cost here: each bubble already carries its own price
+            # via data["cost"] on the "message"/"overseer_decision" SSE events.
+            yield {"event": "done", "data": {"finish_reason": "stop"}}
             _session_config_cache.pop(multiagent_session_id, None)
             _session_graph_cache.pop(multiagent_session_id, None)
 

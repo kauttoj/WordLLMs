@@ -16,14 +16,14 @@ from langgraph.checkpoint.memory import MemorySaver
 
 try:
     from ..schemas import Message
-    from .utils import extract_text_from_content
+    from .utils import extract_text_from_content, get_stop_reason
     from .context import trim_to_fit
     from .llm_retry import invoke_with_timeout, ainvoke_with_timeout, astream_with_timeout, LLM_RETRY_POLICY
     from ..providers.base import bind_tools_compat, get_model_name
     from .. import pricing
 except ImportError:
     from schemas import Message
-    from utils import extract_text_from_content
+    from utils import extract_text_from_content, get_stop_reason
     from context import trim_to_fit
     from llm_retry import invoke_with_timeout, ainvoke_with_timeout, astream_with_timeout, LLM_RETRY_POLICY
     from providers.base import bind_tools_compat, get_model_name
@@ -31,6 +31,11 @@ except ImportError:
 
 # DEBUG: Set to False to disable streaming for easier debugging
 ENABLE_STREAM = True
+
+# Max retries when the agent LLM returns empty content and no tool calls (e.g. a
+# high-reasoning-effort model exhausting its token budget on internal thinking
+# before producing any visible output).
+MAX_EMPTY_RETRIES = 2
 
 # --- Legacy ThinkingRouter (Preserved & Required for DeepSeek/Open Source) ---
 class ThinkingRouter:
@@ -104,15 +109,34 @@ def agent_node(state: AgentState, config):
     model_with_tools = bind_tools_compat(model, tools + client_tools)
 
     llm_timeout = config["configurable"]["llm_timeout"]
-    response = invoke_with_timeout(model_with_tools, trimmed, llm_timeout, label="Agent")
-    _record_usage(config, response)
 
-    if response.tool_calls:
-        print(f"[Graph:Agent] Response has {len(response.tool_calls)} tool call(s): {[tc['name'] for tc in response.tool_calls]}")
-    else:
+    response = None
+    for empty_attempt in range(MAX_EMPTY_RETRIES + 1):
+        response = invoke_with_timeout(model_with_tools, trimmed, llm_timeout, label="Agent")
+        _record_usage(config, response)
+
+        if response.tool_calls:
+            print(f"[Graph:Agent] Response has {len(response.tool_calls)} tool call(s): {[tc['name'] for tc in response.tool_calls]}")
+            break
+
         content = extract_text_from_content(response.content)
         preview = content[:150].replace('\n', ' ') if content else ""
         print(f"[Graph:Agent] Response text ({len(content)} chars): {preview}...")
+
+        if content:
+            break
+
+        stop_reason = get_stop_reason(response)
+        if empty_attempt < MAX_EMPTY_RETRIES:
+            print(f"[Graph:Agent]   WARNING: Empty response (stop_reason={stop_reason}, attempt {empty_attempt + 1}/{MAX_EMPTY_RETRIES + 1}), retrying...")
+        else:
+            raise RuntimeError(
+                f"Agent LLM returned an empty response (no text, no tool calls) after "
+                f"{MAX_EMPTY_RETRIES + 1} attempt(s). stop_reason={stop_reason}. This usually "
+                "means the model exhausted its token budget on internal reasoning before "
+                "producing any visible output -- try a lower reasoning effort or a larger "
+                "max_tokens budget."
+            )
 
     return {"messages": [response]}
 
@@ -136,10 +160,12 @@ def tool_node(state: AgentState, config):
 
     for tc in last_msg.tool_calls:
         if tc["name"] == "write_todos":
-            print(f"[Graph:Tools]   Todo Tool: {tc['name']}")
             cmd = write_todos.invoke(tc)
-            state_updates["todos"] = cmd.update["todos"]
+            todos = cmd.update["todos"]
+            state_updates["todos"] = todos
             results.extend(cmd.update["messages"])
+            summary = " | ".join(f"[{t['status']}] {t['content']}" for t in todos)
+            print(f"[Graph:Tools]   Todo Tool: write_todos -> {len(todos)} item(s): {summary}")
         elif tc["name"] in server_tool_map:
             print(f"[Graph:Tools]   Server Tool: {tc['name']}")
             tool = server_tool_map[tc["name"]]
@@ -242,12 +268,18 @@ def _emit_text_if_new(session_id: str, snapshot, filter_thinking: bool):
     return None
 
 
-def _last_ai_text(messages) -> str:
-    """Text of the final tool-call-free AIMessage, for token estimation fallback."""
+def _last_ai_message(messages) -> AIMessage | None:
+    """The final tool-call-free AIMessage, or None if there isn't one."""
     for msg in reversed(messages):
         if isinstance(msg, AIMessage) and not msg.tool_calls:
-            return extract_text_from_content(msg.content) or ""
-    return ""
+            return msg
+    return None
+
+
+def _last_ai_text(messages) -> str:
+    """Text of the final tool-call-free AIMessage, for token estimation fallback."""
+    msg = _last_ai_message(messages)
+    return extract_text_from_content(msg.content) if msg else ""
 
 
 # --- 4. Helper: Stream Processor ---
@@ -382,7 +414,7 @@ async def chat_complete(
     response = await ainvoke_with_timeout(model, lc_messages, llm_timeout, label="Chat")
     text = extract_text_from_content(response.content)
     content = remove_thinking_tags(text, enabled=filter_thinking)
-    return {"content": content, "finish_reason": "stop"}
+    return {"content": content, "finish_reason": get_stop_reason(response)}
 
 
 async def stream_chat(
@@ -478,14 +510,15 @@ async def stream_chat(
         cost = pricing.compute_cost(
             model, input_tokens=in_tok, output_tokens=out_tok,
             lc_messages=lc_messages, output_text=content,
-        )
-        yield {"event": "done", "data": {"finish_reason": "stop", "cost": cost}}
+        ) or pricing.unknown_cost(model)
+        yield {"event": "done", "data": {"finish_reason": get_stop_reason(response), "cost": cost}}
         return
 
     think_router = ThinkingRouter(enabled=filter_thinking)
     accumulated_content = ""
     chunk_count = 0
     final_usage = None
+    final_stop_reason = None
 
     print("[stream_chat] Starting to stream chunks from model.astream()...")
     try:
@@ -499,6 +532,9 @@ async def stream_chat(
             chunk_usage = getattr(chunk, "usage_metadata", None)
             if chunk_usage:
                 final_usage = chunk_usage
+            chunk_stop_reason = get_stop_reason(chunk)
+            if chunk_stop_reason != "unknown":
+                final_stop_reason = chunk_stop_reason
 
             if hasattr(chunk, "content") and chunk.content:
                 text_chunk = extract_text_from_content(chunk.content)
@@ -542,8 +578,8 @@ async def stream_chat(
     cost = pricing.compute_cost(
         model, input_tokens=in_tok, output_tokens=out_tok,
         lc_messages=lc_messages, output_text=accumulated_content,
-    )
-    yield {"event": "done", "data": {"finish_reason": "stop", "cost": cost}}
+    ) or pricing.unknown_cost(model)
+    yield {"event": "done", "data": {"finish_reason": final_stop_reason or "unknown", "cost": cost}}
 
 
 # --- 7. Result Extraction Helper ---
@@ -749,12 +785,7 @@ async def stream_agent(
             # NO interrupt = agent is done
             # Emit final response if streaming didn't already
             if not text_emitted:
-                all_msgs = snapshot.values.get("messages", [])
-                final_msg = None
-                for msg in reversed(all_msgs):
-                    if isinstance(msg, AIMessage) and not msg.tool_calls:
-                        final_msg = msg
-                        break
+                final_msg = _last_ai_message(snapshot.values.get("messages", []))
 
                 if final_msg:
                     content = extract_text_from_content(final_msg.content)
@@ -778,7 +809,9 @@ async def stream_agent(
                 lc_messages=final_msgs,
                 output_text=_last_ai_text(final_msgs),
             ) or pricing.unknown_cost(model)
-            yield {"event": "done", "data": {"finish_reason": "stop", "cost": cost}}
+            last_ai_msg = _last_ai_message(final_msgs)
+            finish_reason = get_stop_reason(last_ai_msg) if last_ai_msg else "unknown"
+            yield {"event": "done", "data": {"finish_reason": finish_reason, "cost": cost}}
 
     except Exception as e:
         if use_store:
@@ -876,12 +909,7 @@ async def resume_agent(
             # NO interrupt = agent is done
             # Emit final response explicitly if streaming didn't
             if not text_emitted:
-                all_msgs = snapshot.values.get("messages", [])
-                final_msg = None
-                for msg in reversed(all_msgs):
-                    if isinstance(msg, AIMessage) and not msg.tool_calls:
-                        final_msg = msg
-                        break
+                final_msg = _last_ai_message(snapshot.values.get("messages", []))
 
                 if final_msg:
                     content = extract_text_from_content(final_msg.content)
@@ -909,7 +937,9 @@ async def resume_agent(
                 lc_messages=final_msgs,
                 output_text=_last_ai_text(final_msgs),
             ) or pricing.unknown_cost(model)
-            yield {"event": "done", "data": {"finish_reason": "stop", "cost": cost}}
+            last_ai_msg = _last_ai_message(final_msgs)
+            finish_reason = get_stop_reason(last_ai_msg) if last_ai_msg else "unknown"
+            yield {"event": "done", "data": {"finish_reason": finish_reason, "cost": cost}}
 
     except Exception as e:
         if conversation_store:

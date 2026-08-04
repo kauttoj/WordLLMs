@@ -9,9 +9,21 @@ from langchain_core.messages import (
 )
 
 class Attachment(BaseModel):
-    """A file attachment sent with a chat message."""
+    """A reference to a previously-uploaded attachment (see POST /api/attachments)."""
+    id: str
+    filename: str
+
+
+class AttachmentFile(BaseModel):
+    """A raw file to upload. Base64 crosses the wire exactly once, here."""
     filename: str
     data: str  # base64-encoded file content
+
+
+class AttachmentUploadRequest(BaseModel):
+    """POST /api/attachments body."""
+    conversation_id: str
+    files: list[AttachmentFile]
 
 
 class Message(BaseModel):
@@ -218,7 +230,7 @@ class SerializedMessage(BaseModel):
     timestamp: float
     metadata: dict[str, Any] | None = None
     toolName: str | None = None
-    attachments: list[dict[str, str]] | None = None  # [{"filename": "..."}]
+    attachments: list[dict[str, Any]] | None = None  # [{"id": ..., "filename": ...}]; "available" added on read
 
 
 class ThreadSaveRequest(BaseModel):
@@ -244,6 +256,8 @@ class EditMessageRequest(BaseModel):
     conversation_id: str
     turn: int = Field(ge=1)
     new_content: str
+    attachments: list[Attachment] = Field(default_factory=list)
+    attachment_char_limit: int = Field(default=100000, ge=500)
 
 
 class TruncateRequest(BaseModel):
