@@ -623,9 +623,12 @@ async def edit_message(request: EditMessageRequest):
     content, _truncation_warnings = compose_user_content(
         request.new_content, items, request.attachment_char_limit,
     )
-    conversation_store.edit_user_message(
-        request.conversation_id, request.turn, content,
-    )
+    try:
+        conversation_store.edit_user_message(
+            request.conversation_id, request.turn, content,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     return {"ok": True}
 
 

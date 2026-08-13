@@ -748,6 +748,7 @@ const history = ref<Message[]>([])
 const messageMetadata = new Map<number, BotMetadata>() // Bot metadata for multiagent display
 const messageAttachmentsMap = new Map<number, { id: string; filename: string }[]>() // Attachment refs per message — {id, filename} only; content lives server-side
 const messageCostMap = ref<Record<number, CostInfo>>({}) // API cost per response, keyed by last-bubble index
+const messageTurnMap = ref<Record<number, number>>({}) // Backend ConversationStore turn per user message, keyed by history index — authoritative for edit/fork/retry
 const currentBotMessageIndex = ref<number | null>(null) // Track current bot message being streamed
 const userInput = ref('')
 const loading = ref(false)
@@ -806,7 +807,7 @@ async function refreshContextStats() {
 }
 
 // Attachment state
-const MAX_TOTAL_ATTACHMENT_BYTES = 50 * 1024 * 1024 // 50 MB
+const MAX_TOTAL_ATTACHMENT_BYTES = 150 * 1024 * 1024 // 150 MB
 // A pending attachment is either a freshly picked file awaiting upload ({filename, data})
 // or an already-uploaded server-side ref ({filename, id}) — the latter is what Fork restores.
 type PendingAttachment = { filename: string; data: string } | { filename: string; id: string }
@@ -1149,6 +1150,7 @@ async function startNewChat() {
   messageMetadata.clear()
   messageAttachmentsMap.clear()
   messageCostMap.value = {}
+  messageTurnMap.value = {}
   currentBotMessageIndex.value = null
   agentResponseMessageIndex.value = null
   threadId.value = uuidv4()
@@ -1233,75 +1235,84 @@ async function sendMessage() {
   if (!userInput.value.trim() || loading.value || incompleteResponse.value) return
   if (!checkApiKey()) return
 
-  // Upload any not-yet-uploaded attachments first — base64 crosses the wire
-  // exactly once, here. Everything downstream (map, thread records, request
-  // bodies) only ever carries {id, filename}. On failure: abort the send and
-  // keep the typed message + pending attachments intact so the user can retry.
-  let messageAttachments: { id: string; filename: string }[] = []
-  if (pendingAttachments.value.length > 0) {
-    try {
-      const toUpload = pendingAttachments.value.filter((a): a is { filename: string; data: string } => 'data' in a)
-      const uploaded = toUpload.length > 0
-        ? await uploadAttachments(threadId.value, toUpload.map(a => ({ filename: a.filename, data: a.data })))
-        : []
-      const uploadedQueue = [...uploaded]
-      messageAttachments = pendingAttachments.value.map(a => {
-        if ('data' in a) {
-          const ref = uploadedQueue.shift()!
-          return { id: ref.id, filename: ref.filename }
-        }
-        return { id: a.id, filename: a.filename }
-      })
-    } catch (error: any) {
-      messageUtil.error(t('attachmentUploadFailed', { error: error.message || String(error) }))
-      return
-    }
-  }
-
-  const userMessage = userInput.value.trim()
-  userInput.value = ''
-  pendingAttachments.value = []
-
-  await nextTick()
-  adjustTextareaHeight()
-
-  // Get selected text from Word (clean: tracked-change deletions stripped)
-  let selectedText = ''
-  if (useSelectedText.value) {
-    try {
-      selectedText = await getCleanSelectedText()
-    } catch (error) {
-      console.warn('Could not read selection:', error)
-    }
-  }
-
-  // Add user message
-  const fullMessage = new HumanMessage(
-    selectedText ? `${userMessage}\n\n[Selected text: "${selectedText}"]` : userMessage,
-  )
-
-  // Track attachment refs for this user message (will be at current history length after processChat pushes it)
-  if (messageAttachments.length > 0) {
-    const userMsgIndex = history.value.length // processChat will push user msg at this index
-    messageAttachmentsMap.set(userMsgIndex, messageAttachments)
-  }
-
-  scrollToBottom()
-
+  // Enter processing mode immediately on click, before any await — otherwise
+  // a slow attachment upload leaves the user with no visual feedback and they
+  // may press Send again.
   loading.value = true
   abortController.value = new AbortController()
 
   try {
+    // Upload any not-yet-uploaded attachments first — base64 crosses the wire
+    // exactly once, here. Everything downstream (map, thread records, request
+    // bodies) only ever carries {id, filename}. On failure: abort the send and
+    // keep the typed message + pending attachments intact so the user can retry.
+    let messageAttachments: { id: string; filename: string }[] = []
+    if (pendingAttachments.value.length > 0) {
+      try {
+        const toUpload = pendingAttachments.value.filter((a): a is { filename: string; data: string } => 'data' in a)
+        const uploaded = toUpload.length > 0
+          ? await uploadAttachments(threadId.value, toUpload.map(a => ({ filename: a.filename, data: a.data })))
+          : []
+        const uploadedQueue = [...uploaded]
+        messageAttachments = pendingAttachments.value.map(a => {
+          if ('data' in a) {
+            const ref = uploadedQueue.shift()!
+            return { id: ref.id, filename: ref.filename }
+          }
+          return { id: a.id, filename: a.filename }
+        })
+      } catch (error: any) {
+        messageUtil.error(t('attachmentUploadFailed', { error: error.message || String(error) }))
+        return
+      }
+    }
+
+    // User hit Stop while attachments were still uploading — bail out cleanly.
+    if (!loading.value) return
+
+    const userMessage = userInput.value.trim()
+    userInput.value = ''
+    pendingAttachments.value = []
+
+    await nextTick()
+    adjustTextareaHeight()
+
+    // Get selected text from Word (clean: tracked-change deletions stripped)
+    let selectedText = ''
+    if (useSelectedText.value) {
+      try {
+        selectedText = await getCleanSelectedText()
+      } catch (error) {
+        console.warn('Could not read selection:', error)
+      }
+    }
+
+    // Add user message
+    const fullMessage = new HumanMessage(
+      selectedText ? `${userMessage}\n\n[Selected text: "${selectedText}"]` : userMessage,
+    )
+
+    // Track attachment refs for this user message (will be at current history length after processChat pushes it)
+    if (messageAttachments.length > 0) {
+      const userMsgIndex = history.value.length // processChat will push user msg at this index
+      messageAttachmentsMap.set(userMsgIndex, messageAttachments)
+    }
+
+    scrollToBottom()
+
     await processChat(fullMessage, undefined, messageAttachments.length ? messageAttachments : undefined)
   } catch (error: any) {
     if (error.name === 'AbortError') {
+      rollbackUnstoredUserMessage()
       messageUtil.info(t('generationStop'))
       await saveConversationToThread()
       refreshContextStats()
     } else {
       console.error(error)
       messageUtil.error(t('failedToResponse'))
-      incompleteResponse.value = true
+      if (!rollbackUnstoredUserMessage()) {
+        incompleteResponse.value = true
+      }
       await saveConversationToThread()
     }
   } finally {
@@ -1332,6 +1343,7 @@ async function processChat(
 
   // Add user message to GUI history (display-only — backend manages its own history)
   history.value.push(userMessage)
+  const userMsgIndex = history.value.length - 1
 
   // All modes: send only the new user message (+ system message if custom prompt).
   // Backend ConversationStore handles cross-mode consigliere history.
@@ -1629,6 +1641,9 @@ async function processChat(
       // Multiagent's "done" event no longer carries a summed cost — every
       // expert/overseer/synthesizer bubble now prices itself above, via
       // onMessage/onOverseerDecision. No onCost handler needed here.
+      onTurn: (turn: number) => {
+        messageTurnMap.value[userMsgIndex] = turn
+      },
     })
     if (
       multiAgentMode.value === 'collaborative' &&
@@ -1687,6 +1702,9 @@ async function processChat(
           const idx = agentResponseMessageIndex.value ?? history.value.length - 1
           messageCostMap.value[idx] = cost
         },
+        onTurn: (turn: number) => {
+          messageTurnMap.value[userMsgIndex] = turn
+        },
       },
       languageParam,
     )
@@ -1726,6 +1744,9 @@ async function processChat(
         onCost: (cost: CostInfo) => {
           messageCostMap.value[history.value.length - 1] = cost
         },
+        onTurn: (turn: number) => {
+          messageTurnMap.value[userMsgIndex] = turn
+        },
       },
       languageParam,
     )
@@ -1738,7 +1759,9 @@ async function processChat(
       messageUtil.error(t('somethingWentWrong'))
     }
     errorIssue.value = null
-    incompleteResponse.value = true
+    if (!rollbackUnstoredUserMessage()) {
+      incompleteResponse.value = true
+    }
     await saveConversationToThread()
     return
   }
@@ -1771,8 +1794,16 @@ function copyToClipboard(text: string) {
 // Edit / Fork / Retry helpers
 // ---------------------------------------------------------------------------
 
-/** Count how many HumanMessages appear from index 0 to historyIndex (inclusive) → 1-indexed backend turn. */
+/**
+ * Resolve the backend ConversationStore turn for a HumanMessage at historyIndex.
+ * Prefers the authoritative turn number the backend reported via the "turn" SSE
+ * event (messageTurnMap); falls back to counting HumanMessages for threads/messages
+ * that predate that plumbing (a best-effort guess that can drift after a failed send).
+ */
 function getTurnForHumanMessageIndex(historyIndex: number): number {
+  const known = messageTurnMap.value[historyIndex]
+  if (known !== undefined) return known
+
   let turnCount = 0
   for (let i = 0; i <= historyIndex; i++) {
     if (history.value[i] instanceof HumanMessage) turnCount++
@@ -1800,6 +1831,29 @@ function truncateHistoryAndMaps(fromIndex: number) {
   for (const key of Object.keys(messageCostMap.value)) {
     if (Number(key) >= fromIndex) delete messageCostMap.value[Number(key)]
   }
+  for (const key of Object.keys(messageTurnMap.value)) {
+    if (Number(key) >= fromIndex) delete messageTurnMap.value[Number(key)]
+  }
+}
+
+/**
+ * If the newest HumanMessage never got a backend turn (the "turn" SSE event never
+ * arrived — the send failed before ConversationStore stored anything for it), drop
+ * it from frontend history so it doesn't permanently desync getTurnForHumanMessageIndex's
+ * fallback counting. Returns true if it rolled something back.
+ */
+function rollbackUnstoredUserMessage(): boolean {
+  let lastHumanIndex = -1
+  for (let i = history.value.length - 1; i >= 0; i--) {
+    if (history.value[i] instanceof HumanMessage) {
+      lastHumanIndex = i
+      break
+    }
+  }
+  if (lastHumanIndex === -1) return false
+  if (messageTurnMap.value[lastHumanIndex] !== undefined) return false
+  truncateHistoryAndMaps(lastHumanIndex)
+  return true
 }
 
 /** Remove partial AI/tool responses after the last user message and persist thread. */
@@ -1882,10 +1936,12 @@ async function forkFromMessage(index: number) {
   const forkedMetadata = new Map<number, BotMetadata>()
   const forkedAttachments = new Map<number, { id: string; filename: string }[]>()
   const forkedCosts: Record<number, CostInfo> = {}
+  const forkedTurns: Record<number, number> = {}
   for (let i = 0; i < index; i++) {
     if (messageMetadata.has(i)) forkedMetadata.set(i, messageMetadata.get(i)!)
     if (messageAttachmentsMap.has(i)) forkedAttachments.set(i, messageAttachmentsMap.get(i)!)
     if (messageCostMap.value[i]) forkedCosts[i] = messageCostMap.value[i]
+    if (messageTurnMap.value[i] !== undefined) forkedTurns[i] = messageTurnMap.value[i]
   }
 
   history.value = forkedHistory
@@ -1894,6 +1950,7 @@ async function forkFromMessage(index: number) {
   forkedMetadata.forEach((v, k) => messageMetadata.set(k, v))
   forkedAttachments.forEach((v, k) => messageAttachmentsMap.set(k, v))
   messageCostMap.value = forkedCosts
+  messageTurnMap.value = forkedTurns
   threadId.value = newThreadId
   incompleteResponse.value = false
 
@@ -1953,13 +2010,16 @@ async function retryLastMessage() {
     await processChat(userMessage, undefined, savedAttachments)
   } catch (error: any) {
     if (error.name === 'AbortError') {
+      rollbackUnstoredUserMessage()
       messageUtil.info(t('generationStop'))
       await saveConversationToThread()
       refreshContextStats()
     } else {
       console.error(error)
       messageUtil.error(t('failedToResponse'))
-      incompleteResponse.value = true
+      if (!rollbackUnstoredUserMessage()) {
+        incompleteResponse.value = true
+      }
       await saveConversationToThread()
     }
   } finally {
@@ -2280,6 +2340,7 @@ async function saveConversationToThread() {
           metadata: messageMetadata.get(i),
           attachments,
           cost: messageCostMap.value[i],
+          turn: messageTurnMap.value[i],
         })
       }
     }
@@ -2318,6 +2379,7 @@ async function loadThreadHistory(targetThreadId: string) {
       messageMetadata.clear()
       messageAttachmentsMap.clear()
       messageCostMap.value = {}
+      messageTurnMap.value = {}
       currentCheckpointId.value = ''
       contextStats.value = { chars: 0, tokens: 0 }
       liveCharsDelta.value = 0
@@ -2339,6 +2401,7 @@ async function loadThreadHistory(targetThreadId: string) {
     messageMetadata.clear()
     messageAttachmentsMap.clear()
     messageCostMap.value = {}
+    messageTurnMap.value = {}
     let droppedAttachments = false
     thread.messages.forEach((msg: any, index: number) => {
       if (msg.metadata) {
@@ -2356,6 +2419,9 @@ async function loadThreadHistory(targetThreadId: string) {
       }
       if (msg.cost) {
         messageCostMap.value[index] = msg.cost
+      }
+      if (typeof msg.turn === 'number') {
+        messageTurnMap.value[index] = msg.turn
       }
     })
     if (droppedAttachments) {

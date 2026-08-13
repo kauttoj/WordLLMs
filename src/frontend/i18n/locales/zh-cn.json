@@ -11,6 +11,7 @@
   "askAnything": "问我任何问题",
   "attachmentsUnavailable": "部分附件在服务器上已不可用，已被隐藏。",
   "attachmentUploadFailed": "附件上传失败：{error}",
+  "availableModelsLabel": "可用模型",
   "availableTools": "可用工具",
   "azureAPIEndpointLabel": "endpoint",
   "azureAPIEndpointPlaceholder": "endpoint",

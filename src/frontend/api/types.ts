@@ -20,6 +20,7 @@ export interface BaseChatCompletionOptions {
   documentContent?: string // Full Word document text, attached fresh every turn (chat mode only)
   onStream: (text: string, speaker?: string, forceNew?: boolean) => void
   onCost?: (cost: CostInfo) => void // Cost of the full response (attaches to last bubble)
+  onTurn?: (turn: number) => void // Backend-assigned ConversationStore turn for this request's user message
 }
 
 export interface OpenAIOptions extends BaseChatCompletionOptions {

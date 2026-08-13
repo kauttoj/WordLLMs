@@ -460,6 +460,15 @@ async def stream_chat(
         else:
             system_content = conversation_store.get_system_prompt(conversation_id)
 
+        # Store the user message(s) immediately — before any further prompt
+        # augmentation that could throw, so a failure never leaves start_turn()'s
+        # counter increment without a matching stored message (a "phantom turn").
+        new_user_msgs = convert_messages(messages)
+        for msg in new_user_msgs:
+            if isinstance(msg, HumanMessage):
+                conversation_store.add_user_message(conversation_id, turn, msg, "chat")
+        yield {"event": "turn", "data": {"turn": turn}}
+
         # Inject behavioral instructions after identity paragraph
         if system_content and isinstance(system_content, str):
             system_content = inject_behavior(system_content, additional_system_prompt)
@@ -471,13 +480,7 @@ async def stream_chat(
         if system_content:
             lc_messages.append(SystemMessage(content=system_content))
         lc_messages += history
-        new_user_msgs = convert_messages(messages)
         lc_messages += new_user_msgs
-
-        # Store user message(s)
-        for msg in new_user_msgs:
-            if isinstance(msg, HumanMessage):
-                conversation_store.add_user_message(conversation_id, turn, msg, "chat")
     else:
         # Fallback: no store, use messages as-is (legacy / dev mode)
         messages_to_use = inject_system_prompt_if_needed(
@@ -497,7 +500,12 @@ async def stream_chat(
 
     if not ENABLE_STREAM:
         print("[stream_chat] Non-streaming mode enabled")
-        response = await ainvoke_with_timeout(model, lc_messages, llm_timeout, label="Chat")
+        try:
+            response = await ainvoke_with_timeout(model, lc_messages, llm_timeout, label="Chat")
+        except Exception:
+            if use_store:
+                conversation_store.rollback_response(conversation_id, turn)
+            raise
         text = extract_text_from_content(response.content)
         content = remove_thinking_tags(text, enabled=filter_thinking)
         if use_store:
@@ -687,6 +695,15 @@ async def stream_agent(
         else:
             system_content = conversation_store.get_system_prompt(conversation_id)
 
+        # Store the user message(s) immediately — before any further prompt
+        # augmentation that could throw, so a failure never leaves start_turn()'s
+        # counter increment without a matching stored message (a "phantom turn").
+        new_user_msgs = convert_messages(messages)
+        for msg in new_user_msgs:
+            if isinstance(msg, HumanMessage):
+                conversation_store.add_user_message(conversation_id, turn, msg, "agent")
+        yield {"event": "turn", "data": {"turn": turn}}
+
         # Inject behavioral instructions after identity paragraph
         if system_content and isinstance(system_content, str):
             system_content = inject_behavior(system_content, additional_system_prompt)
@@ -696,13 +713,7 @@ async def stream_agent(
         if system_content:
             lc_messages.append(SystemMessage(content=system_content))
         lc_messages += history
-        new_user_msgs = convert_messages(messages)
         lc_messages += new_user_msgs
-
-        # Store user message(s)
-        for msg in new_user_msgs:
-            if isinstance(msg, HumanMessage):
-                conversation_store.add_user_message(conversation_id, turn, msg, "agent")
 
         pre_turn_count = len(lc_messages)
         conversation_store.register_thread(session_id, conversation_id, turn, pre_turn_count)

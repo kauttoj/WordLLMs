@@ -343,17 +343,19 @@
                       />
                     </template>
                   </CustomInput>
+                  <span class="text-xs font-semibold text-secondary">{{ t('availableModelsLabel') }}</span>
                   <div
-                    v-if="getCustomModelsList(platform).length > 0"
+                    v-if="getMergedModelOptions(platform).length > 0"
                     class="flex flex-wrap gap-1.5"
                   >
                     <span
-                      v-for="model in getCustomModelsList(platform)"
+                      v-for="model in getMergedModelOptions(platform)"
                       :key="model"
                       class="inline-flex items-center gap-1 rounded-sm border border-border p-1 text-xs text-secondary hover:bg-accent/20"
                     >
                       {{ model }}
                       <button
+                        v-if="getCustomModelsList(platform).includes(model)"
                         class="inline-flex items-center justify-center rounded-sm p-1 text-danger hover:bg-danger/10"
                         @click="removeCustomModel(platform, model)"
                       >
@@ -362,15 +364,6 @@
                     </span>
                   </div>
                 </div>
-              </SettingCard>
-              <SettingCard v-for="item in getApiSelectSettings(platform)" :key="item">
-                <SingleSelect
-                  v-model="settingForm[item as SettingNames]"
-                  :key-list="getMergedModelOptions(platform)"
-                  :title="t(getLabel(item))"
-                  :fronticon="false"
-                  :placeholder="settingForm[item as SettingNames]"
-                />
               </SettingCard>
               <SettingCard v-for="item in getApiEnumSettings(platform)" v-show="!isEffortHidden(item)" :key="item">
                 <SingleSelect
@@ -1017,12 +1010,6 @@ const getApiNumSettings = (platform: string) => {
 const getApiCheckboxSettings = (platform: string) => {
   return Object.keys(settingForm.value).filter(
     key => key.startsWith(platform) && settingPreset[key as SettingNames].type === 'checkbox',
-  )
-}
-
-const getApiSelectSettings = (platform: string) => {
-  return Object.keys(settingForm.value).filter(
-    key => key.startsWith(platform) && settingPreset[key as SettingNames].type === 'select' && key.endsWith('ModelSelect'),
   )
 }
 

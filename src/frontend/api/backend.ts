@@ -192,6 +192,7 @@ interface ParseSSEOptions {
   onNewBlock?: (speaker?: string) => void
   onOverseerDecision?: (decision: string, cost?: CostInfo) => void
   onCost?: (cost: CostInfo) => void
+  onTurn?: (turn: number) => void
   abortSignal?: AbortSignal
 }
 
@@ -308,6 +309,11 @@ async function parseSSEStream(response: Response, options: ParseSSEOptions): Pro
                 inThinkingBlock = false
                 if (options.onNewBlock) {
                   options.onNewBlock(data.speaker)
+                }
+                break
+              case 'turn':
+                if (typeof data.turn === 'number' && options.onTurn) {
+                  options.onTurn(data.turn)
                 }
                 break
               case 'warning':
@@ -486,6 +492,7 @@ export async function streamChatFromBackend(options: ProviderOptions, language?:
         options.errorIssue.value = error
       },
       onCost: options.onCost,
+      onTurn: options.onTurn,
       abortSignal: options.abortSignal,
     })
   } catch (error: any) {
@@ -606,6 +613,7 @@ export async function streamAgentFromBackend(options: AgentOptions, language?: s
           }
         },
         onCost: options.onCost,
+        onTurn: options.onTurn,
         abortSignal: options.abortSignal,
       })
 
@@ -884,6 +892,7 @@ export async function streamMultiAgentFromBackend(options: MultiAgentOptions): P
         // expert/overseer/synthesizer bubble now prices itself via onMessage/
         // onOverseerDecision above. This guard just no-ops when cost is absent.
         onCost: options.onCost,
+        onTurn: options.onTurn,
         abortSignal: options.abortSignal,
       })
 
@@ -944,6 +953,7 @@ export interface SerializedMessage {
   toolName?: string
   attachments?: { id: string; filename: string; available?: boolean }[]
   cost?: CostInfo // Response cost, shown on the last bubble; persisted across reloads
+  turn?: number // Backend ConversationStore turn (user messages only) — authoritative for edit/fork/retry
 }
 
 export interface BackendThread {

@@ -42,7 +42,7 @@ except ImportError:  # direct execution (python main.py)
 
 # Total decoded-byte cap per upload call. Measured on decoded bytes, not the
 # base64 string length, so the real on-disk/network cost is what's enforced.
-MAX_ATTACHMENTS_BYTES = 50 * 1024 * 1024  # 50 MB total
+MAX_ATTACHMENTS_BYTES = 150 * 1024 * 1024  # 150 MB total
 
 _ATTACHMENTS_DIR: Path | None = None
 # Guards read-modify-write of any conversation's index.json against concurrent

@@ -1858,6 +1858,7 @@ async def stream_multiagent(
                     conversation_id, turn, msg,
                     "parallel" if mode == "parallel" else "collaborative",
                 )
+        yield {"event": "turn", "data": {"turn": turn}}
 
     thread_id = str(uuid.uuid4())
 
